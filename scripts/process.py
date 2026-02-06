@@ -171,7 +171,8 @@ def deduplicate_and_merge(name, domains, specials):
             if line.strip():
                 final_rules.append(f"domain:{line.strip()}")
 
-    final_rules.extend(specials)
+    unique_specials = sorted(list(set(specials)))
+    final_rules.extend(unique_specials)
 
     final_rules.sort()
 
@@ -258,11 +259,12 @@ def compile_rules(name, json_path, yaml_path, sing_dir, meta_dir):
     subprocess.run(
         ["./bin/sing-box", "rule-set", "compile", json_path, "-o", srs_path], check=True
     )
-    
+
     print(f"Compiling Mihomo rules for {name}...")
     mrs_path = os.path.join(meta_dir, f"{name}.mrs")
     subprocess.run(
-        ["./bin/mihomo", "convert-ruleset", "domain", "yaml", yaml_path, mrs_path], check=True
+        ["./bin/mihomo", "convert-ruleset", "domain", "yaml", yaml_path, mrs_path],
+        check=True,
     )
 
 
@@ -291,7 +293,9 @@ def main():
 
     print("\n>>> Writing output files...")
     cn_json, cn_yaml = generate_files("geolocation-cn", final_cn, meta_dir, sing_dir)
-    reject_json, reject_yaml = generate_files("reject", final_reject, meta_dir, sing_dir)
+    reject_json, reject_yaml = generate_files(
+        "reject", final_reject, meta_dir, sing_dir
+    )
 
     print("\n>>> Compiling binary rules...")
     compile_rules("geolocation-cn", cn_json, cn_yaml, sing_dir, meta_dir)
