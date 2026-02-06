@@ -9,7 +9,7 @@ import json
 REJECT_SOURCES = [
     {
         "url": "https://filters.adtidy.org/extension/ublock/filters/224_optimized.txt",
-        "regex": r"^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})\^",
+        "regex": r"^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})\^[\r\t ]*$",
     },
     {
         "url": "https://easylist-downloads.adblockplus.org/easylistchina+easylist.txt",
