@@ -12,6 +12,10 @@ REJECT_SOURCES = [
         "regex": r"^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})\^",
     },
     {
+        "url": "https://easylist-downloads.adblockplus.org/easylistchina+easylist.txt",
+        "regex": r"^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})\^$",
+    },
+    {
         "url": "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt",
         "regex": r"^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})\^$",
     },
