@@ -5,6 +5,7 @@ import subprocess
 import requests
 import sys
 import json
+import ipaddress
 
 REJECT_SOURCES = [
     {
@@ -39,6 +40,14 @@ def download_file(url):
     except Exception as e:
         print(f"Error downloading {url}: {e}")
         return ""
+
+
+def is_ip_address(s):
+    try:
+        ipaddress.ip_address(s)
+        return True
+    except ValueError:
+        return False
 
 
 def parse_adblock_rule(line):
@@ -98,6 +107,9 @@ def parse_adblock_rule(line):
     if not domain or "." not in domain:
         return None, False
 
+    if is_ip_address(domain):
+        return None, False
+
     if not re.match(
         r"^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*$",
         domain,
@@ -119,14 +131,19 @@ def parse_hosts_rule(line):
     )
     if match:
         domain = match.group(1).lower()
-        if domain != "localhost" and domain != "localhost.localdomain":
+        if (
+            domain != "localhost"
+            and domain != "localhost.localdomain"
+            and not is_ip_address(domain)
+        ):
             return domain
 
     return None
 
 
 def process_reject_upstream():
-    blacklist = set()
+    blacklist_domains = set()
+    blacklist_full = set()
     whitelist = set()
 
     for source in REJECT_SOURCES:
@@ -147,23 +164,34 @@ def process_reject_upstream():
                         whitelist.add(domain)
                         white_count += 1
                     else:
-                        blacklist.add(domain)
+                        blacklist_domains.add(domain)
                         black_count += 1
             elif rule_type == "hosts":
                 domain = parse_hosts_rule(line)
                 if domain:
-                    blacklist.add(domain)
+                    blacklist_full.add(domain)
                     black_count += 1
 
         print(
             f"  -> Extracted {black_count} blacklist, {white_count} whitelist domains from {url}"
         )
 
-    blacklist_filtered = blacklist - whitelist
-    print(f"\n  -> Total: {len(blacklist)} blacklist, {len(whitelist)} whitelist")
-    print(f"  -> After whitelist filtering: {len(blacklist_filtered)} domains")
+    blacklist_domains_filtered = blacklist_domains - whitelist
+    blacklist_full_filtered = blacklist_full - whitelist
 
-    return blacklist_filtered
+    total_black = len(blacklist_domains) + len(blacklist_full)
+    total_filtered = len(blacklist_domains_filtered) + len(blacklist_full_filtered)
+
+    print(
+        f"\n  -> Total: {total_black} blacklist ({len(blacklist_domains)} domain, {len(blacklist_full)} full), {len(whitelist)} whitelist"
+    )
+    print(
+        f"  -> After whitelist filtering: {total_filtered} rules ({len(blacklist_domains_filtered)} domain, {len(blacklist_full_filtered)} full)"
+    )
+
+    full_rules = [f"full:{domain}" for domain in blacklist_full_filtered]
+
+    return blacklist_domains_filtered, full_rules
 
 
 def extract_cn_from_geosite():
@@ -215,15 +243,22 @@ def read_local_list(path):
                     continue
 
                 if line.startswith("full:"):
-                    specials.append(line)
+                    content = line[5:]
+                    if not is_ip_address(content):
+                        specials.append(line)
                 elif line.startswith("regexp:") or line.startswith("keyword:"):
                     specials.append(line)
                 elif line.startswith("domain:"):
-                    domains.add(line[7:])
+                    domain = line[7:]
+                    if not is_ip_address(domain):
+                        domains.add(domain)
                 elif line.startswith("+."):
-                    domains.add(line[2:])
+                    domain = line[2:]
+                    if not is_ip_address(domain):
+                        domains.add(domain)
                 else:
-                    domains.add(line)
+                    if not is_ip_address(line):
+                        domains.add(line)
     return domains, specials
 
 
@@ -307,7 +342,7 @@ def generate_files(name, rules, output_meta, output_sing):
             elif r.startswith("domain:"):
                 lines.append("+." + r[7:])
             else:
-                lines.append("+." + r)
+                lines.append(r)
 
         lines.sort()
         f.write("\n".join(lines))
@@ -316,14 +351,13 @@ def generate_files(name, rules, output_meta, output_sing):
     with open(yaml_path, "w", encoding="utf-8") as f:
         f.write("payload:\n")
         for rule in rules:
+            if rule.startswith("keyword:") or rule.startswith("regexp:"):
+                continue
+
             if rule.startswith("domain:"):
                 f.write(f"  - '+.{rule[7:]}'\n")
             elif rule.startswith("full:"):
                 f.write(f"  - '{rule[5:]}'\n")
-            elif rule.startswith("keyword:"):
-                f.write(f"  - DOMAIN-KEYWORD,{rule[8:]}\n")
-            elif rule.startswith("regexp:"):
-                f.write(f"  - DOMAIN-REGEX,{rule[7:]}\n")
             else:
                 f.write(f"  - '+.{rule}'\n")
 
@@ -389,12 +423,14 @@ def main():
     )
 
     print("\n>>> Processing Reject rules...")
-    reject_repo_domains = process_reject_upstream()
+    reject_repo_domains, reject_repo_specials = process_reject_upstream()
     reject_local_domains, reject_local_specials = read_local_list(
         "rules/my-reject.list"
     )
     final_reject = deduplicate_and_merge(
-        "reject", reject_repo_domains.union(reject_local_domains), reject_local_specials
+        "reject",
+        reject_repo_domains.union(reject_local_domains),
+        reject_repo_specials + reject_local_specials,
     )
 
     meta_dir = "dist/meta/site"
