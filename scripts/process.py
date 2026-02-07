@@ -144,7 +144,6 @@ def parse_hosts_rule(line):
 def process_reject_upstream():
     blacklist_domains = set()
     blacklist_full = set()
-    whitelist = set()
 
     for source in REJECT_SOURCES:
         url = source["url"]
@@ -152,6 +151,10 @@ def process_reject_upstream():
         content = download_file(url)
         if not content:
             continue
+
+        source_blacklist_domains = set()
+        source_blacklist_full = set()
+        source_whitelist = set()
 
         black_count = 0
         white_count = 0
@@ -161,37 +164,39 @@ def process_reject_upstream():
                 domain, is_white = parse_adblock_rule(line)
                 if domain:
                     if is_white:
-                        whitelist.add(domain)
+                        source_whitelist.add(domain)
                         white_count += 1
                     else:
-                        blacklist_domains.add(domain)
+                        source_blacklist_domains.add(domain)
                         black_count += 1
             elif rule_type == "hosts":
                 domain = parse_hosts_rule(line)
                 if domain:
-                    blacklist_full.add(domain)
+                    source_blacklist_full.add(domain)
                     black_count += 1
+
+        source_blacklist_domains_filtered = source_blacklist_domains - source_whitelist
+        source_blacklist_full_filtered = source_blacklist_full - source_whitelist
+
+        blacklist_domains.update(source_blacklist_domains_filtered)
+        blacklist_full.update(source_blacklist_full_filtered)
 
         print(
             f"  -> Extracted {black_count} blacklist, {white_count} whitelist domains from {url}"
         )
-
-    blacklist_domains_filtered = blacklist_domains - whitelist
-    blacklist_full_filtered = blacklist_full - whitelist
+        print(
+            f"  -> After source-specific whitelist filtering: {len(source_blacklist_domains_filtered)} domain, {len(source_blacklist_full_filtered)} full rules"
+        )
 
     total_black = len(blacklist_domains) + len(blacklist_full)
-    total_filtered = len(blacklist_domains_filtered) + len(blacklist_full_filtered)
 
     print(
-        f"\n  -> Total: {total_black} blacklist ({len(blacklist_domains)} domain, {len(blacklist_full)} full), {len(whitelist)} whitelist"
-    )
-    print(
-        f"  -> After whitelist filtering: {total_filtered} rules ({len(blacklist_domains_filtered)} domain, {len(blacklist_full_filtered)} full)"
+        f"\n  -> Total: {total_black} blacklist ({len(blacklist_domains)} domain, {len(blacklist_full)} full)"
     )
 
-    full_rules = [f"full:{domain}" for domain in blacklist_full_filtered]
+    full_rules = [f"full:{domain}" for domain in blacklist_full]
 
-    return blacklist_domains_filtered, full_rules
+    return blacklist_domains, full_rules
 
 
 def extract_cn_from_geosite():
