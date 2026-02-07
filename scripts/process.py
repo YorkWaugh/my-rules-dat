@@ -9,23 +9,23 @@ import json
 REJECT_SOURCES = [
     {
         "url": "https://filters.adtidy.org/extension/ublock/filters/224_optimized.txt",
-        "regex": r"^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})\^[\r\t ]*$",
+        "type": "adblock",
     },
     {
         "url": "https://easylist-downloads.adblockplus.org/easylistchina+easylist.txt",
-        "regex": r"^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})\^$",
+        "type": "adblock",
     },
     {
         "url": "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt",
-        "regex": r"^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})\^$",
+        "type": "adblock",
     },
     {
         "url": "https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/AWAvenue-Ads-Rule.txt",
-        "regex": r"^\|\|([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})\^$",
+        "type": "adblock",
     },
     {
         "url": "https://malware-filter.gitlab.io/malware-filter/urlhaus-filter-hosts-online.txt",
-        "regex": r"^0\.0\.0\.0\s([-_0-9a-zA-Z]+(\.[-_0-9a-zA-Z]+){1,64})",
+        "type": "hosts",
     },
 ]
 
@@ -41,24 +41,129 @@ def download_file(url):
         return ""
 
 
+def parse_adblock_rule(line):
+    line = line.strip()
+
+    if not line or line.startswith("!") or line.startswith("["):
+        return None, False
+
+    is_whitelist = line.startswith("@@")
+    if is_whitelist:
+        line = line[2:]
+
+    if "##" in line or "#@#" in line or "#?#" in line or "#$#" in line:
+        return None, False
+
+    if "$" in line:
+        modifier_part = line.split("$", 1)[1]
+        if any(
+            mod in modifier_part
+            for mod in ["redirect=", "rewrite=", "csp=", "inline-script", "inline-font"]
+        ):
+            return None, False
+
+    if line.startswith("||") and "^" in line:
+        domain = line[2 : line.index("^")]
+        if "/" in domain:
+            domain = domain.split("/")[0]
+        if ":" in domain:
+            domain = domain.split(":")[0]
+        if "$" in domain:
+            domain = domain.split("$")[0]
+    elif line.startswith("|http://") or line.startswith("|https://"):
+        line = line[1:]
+        if "://" in line:
+            line = line.split("://", 1)[1]
+        if "/" in line:
+            domain = line.split("/")[0]
+        elif "^" in line:
+            domain = line.split("^")[0]
+        else:
+            domain = line
+        if "$" in domain:
+            domain = domain.split("$")[0]
+    elif line.startswith("://"):
+        domain = line[3:]
+        if "^" in domain:
+            domain = domain.split("^")[0]
+        if "/" in domain:
+            domain = domain.split("/")[0]
+        if "$" in domain:
+            domain = domain.split("$")[0]
+    else:
+        return None, False
+
+    domain = domain.strip(".")
+
+    if not domain or "." not in domain:
+        return None, False
+
+    if not re.match(
+        r"^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*$",
+        domain,
+    ):
+        return None, False
+
+    return domain.lower(), is_whitelist
+
+
+def parse_hosts_rule(line):
+    line = line.strip()
+
+    if not line or line.startswith("#"):
+        return None
+
+    match = re.match(
+        r"^(?:0\.0\.0\.0|127\.0\.0\.1)\s+([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)+)$",
+        line,
+    )
+    if match:
+        domain = match.group(1).lower()
+        if domain != "localhost" and domain != "localhost.localdomain":
+            return domain
+
+    return None
+
+
 def process_reject_upstream():
-    domains = set()
+    blacklist = set()
+    whitelist = set()
+
     for source in REJECT_SOURCES:
         url = source["url"]
-        regex = source["regex"]
+        rule_type = source["type"]
         content = download_file(url)
         if not content:
             continue
 
-        count = 0
-        for match in re.findall(regex, content, re.M):
-            if isinstance(match, tuple):
-                domains.add(match[0])
-            else:
-                domains.add(match)
-            count += 1
-        print(f"  -> Extracted {count} domains from {url}")
-    return domains
+        black_count = 0
+        white_count = 0
+
+        for line in content.splitlines():
+            if rule_type == "adblock":
+                domain, is_white = parse_adblock_rule(line)
+                if domain:
+                    if is_white:
+                        whitelist.add(domain)
+                        white_count += 1
+                    else:
+                        blacklist.add(domain)
+                        black_count += 1
+            elif rule_type == "hosts":
+                domain = parse_hosts_rule(line)
+                if domain:
+                    blacklist.add(domain)
+                    black_count += 1
+
+        print(
+            f"  -> Extracted {black_count} blacklist, {white_count} whitelist domains from {url}"
+        )
+
+    blacklist_filtered = blacklist - whitelist
+    print(f"\n  -> Total: {len(blacklist)} blacklist, {len(whitelist)} whitelist")
+    print(f"  -> After whitelist filtering: {len(blacklist_filtered)} domains")
+
+    return blacklist_filtered
 
 
 def extract_cn_from_geosite():
