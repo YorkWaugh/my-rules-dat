@@ -222,12 +222,7 @@ def extract_cn_from_geosite():
                 line = line.strip()
                 if line.endswith("@cn"):
                     rule_body = line.rsplit("@cn", 1)[0].strip()
-                    if (
-                        rule_body.startswith("full:")
-                        or rule_body.startswith("regexp:")
-                        or rule_body.startswith("regex:")
-                        or rule_body.startswith("keyword:")
-                    ):
+                    if rule_body.startswith("full:"):
                         cn_specials.append(rule_body)
                     elif rule_body.startswith("domain:"):
                         cn_domains.add(rule_body.replace("domain:", ""))
@@ -252,12 +247,6 @@ def read_local_list(path):
                     content = line[5:]
                     if not is_ip_address(content):
                         specials.append(line)
-                elif (
-                    line.startswith("regexp:")
-                    or line.startswith("regex:")
-                    or line.startswith("keyword:")
-                ):
-                    specials.append(line)
                 elif line.startswith("domain:"):
                     domain = line[7:]
                     if not is_ip_address(domain):
@@ -344,13 +333,6 @@ def generate_files(name, rules, output_meta, output_sing):
     with open(os.path.join(output_meta, f"{name}.list"), "w", encoding="utf-8") as f:
         lines = []
         for r in rules:
-            if (
-                r.startswith("regexp:")
-                or r.startswith("regex:")
-                or r.startswith("keyword:")
-            ):
-                continue
-
             if r.startswith("full:"):
                 lines.append(r[5:])
             elif r.startswith("domain:"):
@@ -365,13 +347,6 @@ def generate_files(name, rules, output_meta, output_sing):
     with open(yaml_path, "w", encoding="utf-8") as f:
         f.write("payload:\n")
         for rule in rules:
-            if (
-                rule.startswith("keyword:")
-                or rule.startswith("regexp:")
-                or rule.startswith("regex:")
-            ):
-                continue
-
             if rule.startswith("domain:"):
                 f.write(f"  - '+.{rule[7:]}'\n")
             elif rule.startswith("full:"):
@@ -386,8 +361,6 @@ def generate_files(name, rules, output_meta, output_sing):
             {
                 "domain": [],
                 "domain_suffix": [],
-                "domain_keyword": [],
-                "domain_regex": [],
             }
         ],
     }
@@ -397,17 +370,9 @@ def generate_files(name, rules, output_meta, output_sing):
             srs_json["rules"][0]["domain_suffix"].append(rule[7:])
         elif rule.startswith("full:"):
             srs_json["rules"][0]["domain"].append(rule[5:])
-        elif rule.startswith("keyword:"):
-            srs_json["rules"][0]["domain_keyword"].append(rule[8:])
-        elif rule.startswith("regexp:"):
-            srs_json["rules"][0]["domain_regex"].append(rule[7:])
-        elif rule.startswith("regex:"):
-            srs_json["rules"][0]["domain_regex"].append(rule[6:])
 
     srs_json["rules"][0]["domain_suffix"].sort()
     srs_json["rules"][0]["domain"].sort()
-    srs_json["rules"][0]["domain_keyword"].sort()
-    srs_json["rules"][0]["domain_regex"].sort()
 
     json_path = os.path.join(output_sing, f"{name}.json")
     with open(json_path, "w", encoding="utf-8") as f:
@@ -431,10 +396,23 @@ def compile_rules(name, json_path, yaml_path, sing_dir, meta_dir):
     )
 
 
+def remove_with_subdomains(domain_set, remove_domains):
+    for remove_domain in remove_domains:
+        domain_set.discard(remove_domain)
+        to_remove = {d for d in domain_set if d.endswith("." + remove_domain)}
+        domain_set -= to_remove
+    return domain_set
+
+
 def main():
     print(">>> Processing CN rules...")
     cn_repo_domains, cn_repo_specials = extract_cn_from_geosite()
     cn_local_domains, cn_local_specials = read_local_list("rules/my-cn.list")
+    cn_remove_domains, cn_remove_specials = read_local_list("rules/my-cn-remove.list")
+    cn_repo_domains = remove_with_subdomains(cn_repo_domains, cn_remove_domains)
+    cn_local_domains = remove_with_subdomains(cn_local_domains, cn_remove_domains)
+    cn_repo_specials = [s for s in cn_repo_specials if s not in cn_remove_specials]
+    cn_local_specials = [s for s in cn_local_specials if s not in cn_remove_specials]
 
     final_cn = deduplicate_and_merge(
         "geolocation-cn",
@@ -447,6 +425,21 @@ def main():
     reject_local_domains, reject_local_specials = read_local_list(
         "rules/my-reject.list"
     )
+    reject_remove_domains, reject_remove_specials = read_local_list(
+        "rules/my-reject-remove.list"
+    )
+    reject_repo_domains = remove_with_subdomains(
+        reject_repo_domains, reject_remove_domains
+    )
+    reject_local_domains = remove_with_subdomains(
+        reject_local_domains, reject_remove_domains
+    )
+    reject_repo_specials = [
+        s for s in reject_repo_specials if s not in reject_remove_specials
+    ]
+    reject_local_specials = [
+        s for s in reject_local_specials if s not in reject_remove_specials
+    ]
     final_reject = deduplicate_and_merge(
         "reject",
         reject_repo_domains.union(reject_local_domains),
