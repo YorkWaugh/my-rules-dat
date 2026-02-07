@@ -111,36 +111,60 @@ def parse_adblock_rule(line):
                 "document",
                 "doc",
                 "app=",
+                "script",
+                "image",
+                "img",
+                "stylesheet",
+                "css",
+                "xmlhttprequest",
+                "xhr",
+                "font",
+                "media",
+                "object",
+                "subdocument",
+                "websocket",
+                "webrtc",
+                "other",
             ]
         ):
             return None, False
 
+    domain = ""
+
     if line.startswith("||") and "^" in line:
-        domain = line[2 : line.index("^")]
+        caret_pos = line.index("^")
+        domain = line[2:caret_pos]
+        remainder = line[caret_pos + 1 :]
+        if "$" in remainder:
+            remainder = remainder.split("$")[0]
+
+        if remainder:
+            return None, False
+
         if "/" in domain:
-            domain = domain.split("/")[0]
-        if ":" in domain:
-            domain = domain.split(":")[0]
-        if "$" in domain:
-            domain = domain.split("$")[0]
+            return None, False
+
     elif line.startswith("|http://") or line.startswith("|https://"):
         line = line[1:]
         if "://" in line:
             line = line.split("://", 1)[1]
+
         if "/" in line:
-            domain = line.split("/")[0]
-        elif "^" in line:
+            return None, False
+
+        if "^" in line:
             domain = line.split("^")[0]
         else:
             domain = line
         if "$" in domain:
             domain = domain.split("$")[0]
+
     elif line.startswith("://"):
         domain = line[3:]
+        if "/" in domain:
+            return None, False
         if "^" in domain:
             domain = domain.split("^")[0]
-        if "/" in domain:
-            domain = domain.split("/")[0]
         if "$" in domain:
             domain = domain.split("$")[0]
     else:
