@@ -220,6 +220,7 @@ def extract_cn_from_geosite():
                     if (
                         rule_body.startswith("full:")
                         or rule_body.startswith("regexp:")
+                        or rule_body.startswith("regex:")
                         or rule_body.startswith("keyword:")
                     ):
                         cn_specials.append(rule_body)
@@ -246,7 +247,11 @@ def read_local_list(path):
                     content = line[5:]
                     if not is_ip_address(content):
                         specials.append(line)
-                elif line.startswith("regexp:") or line.startswith("keyword:"):
+                elif (
+                    line.startswith("regexp:")
+                    or line.startswith("regex:")
+                    or line.startswith("keyword:")
+                ):
                     specials.append(line)
                 elif line.startswith("domain:"):
                     domain = line[7:]
@@ -334,7 +339,11 @@ def generate_files(name, rules, output_meta, output_sing):
     with open(os.path.join(output_meta, f"{name}.list"), "w", encoding="utf-8") as f:
         lines = []
         for r in rules:
-            if r.startswith("regexp:") or r.startswith("keyword:"):
+            if (
+                r.startswith("regexp:")
+                or r.startswith("regex:")
+                or r.startswith("keyword:")
+            ):
                 continue
 
             if r.startswith("full:"):
@@ -351,7 +360,11 @@ def generate_files(name, rules, output_meta, output_sing):
     with open(yaml_path, "w", encoding="utf-8") as f:
         f.write("payload:\n")
         for rule in rules:
-            if rule.startswith("keyword:") or rule.startswith("regexp:"):
+            if (
+                rule.startswith("keyword:")
+                or rule.startswith("regexp:")
+                or rule.startswith("regex:")
+            ):
                 continue
 
             if rule.startswith("domain:"):
@@ -383,6 +396,8 @@ def generate_files(name, rules, output_meta, output_sing):
             srs_json["rules"][0]["domain_keyword"].append(rule[8:])
         elif rule.startswith("regexp:"):
             srs_json["rules"][0]["domain_regex"].append(rule[7:])
+        elif rule.startswith("regex:"):
+            srs_json["rules"][0]["domain_regex"].append(rule[6:])
 
     srs_json["rules"][0]["domain_suffix"].sort()
     srs_json["rules"][0]["domain"].sort()
