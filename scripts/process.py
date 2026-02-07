@@ -62,6 +62,31 @@ def is_ip_address(s):
         return False
 
 
+def remove_with_subdomains(domain_set, remove_domains):
+    for remove_domain in remove_domains:
+        domain_set.discard(remove_domain)
+        suffix = "." + remove_domain
+        to_remove = {d for d in domain_set if d.endswith(suffix)}
+        domain_set -= to_remove
+    return domain_set
+
+
+def clean_full_from_domains(full_set, domain_set):
+    clean_full = set()
+    for f in full_set:
+        parts = f.split(".")
+        is_covered = False
+        for i in range(len(parts)):
+            suffix = ".".join(parts[i:])
+            if suffix in domain_set:
+                is_covered = True
+                break
+
+        if not is_covered:
+            clean_full.add(f)
+    return clean_full
+
+
 def parse_adblock_rule(line):
     line = line.strip()
 
@@ -243,8 +268,12 @@ def process_reject_upstream():
                     source_blacklist_full.add(domain)
                     black_count += 1
 
-        source_blacklist_domains_filtered = source_blacklist_domains - source_whitelist
-        source_blacklist_full_filtered = source_blacklist_full - source_whitelist
+        source_blacklist_domains_filtered = remove_with_subdomains(
+            source_blacklist_domains, source_whitelist
+        )
+        source_blacklist_full_filtered = remove_with_subdomains(
+            source_blacklist_full, source_whitelist
+        )
 
         blacklist_domains.update(source_blacklist_domains_filtered)
         blacklist_full.update(source_blacklist_full_filtered)
@@ -282,7 +311,8 @@ def extract_cn_from_geosite():
 
     for filepath in glob.glob("temp_unpack/*"):
         filename = os.path.basename(filepath)
-        if filename == "geosite_cn.txt" or filename == "cn.txt":
+
+        if filename == "cn" or "category" in filename or "google" in filename:
             continue
 
         with open(filepath, "r", encoding="utf-8") as f:
@@ -294,8 +324,6 @@ def extract_cn_from_geosite():
                         cn_specials.append(rule_body)
                     elif rule_body.startswith("domain:"):
                         cn_domains.add(rule_body.replace("domain:", ""))
-                    else:
-                        cn_domains.add(rule_body)
 
     return cn_domains, cn_specials
 
@@ -319,13 +347,7 @@ def read_local_list(path):
                     domain = line[7:]
                     if not is_ip_address(domain):
                         domains.add(domain)
-                elif line.startswith("+."):
-                    domain = line[2:]
-                    if not is_ip_address(domain):
-                        domains.add(domain)
-                else:
-                    if not is_ip_address(line):
-                        domains.add(line)
+
     return domains, specials
 
 
@@ -464,14 +486,6 @@ def compile_rules(name, json_path, yaml_path, sing_dir, meta_dir):
     )
 
 
-def remove_with_subdomains(domain_set, remove_domains):
-    for remove_domain in remove_domains:
-        domain_set.discard(remove_domain)
-        to_remove = {d for d in domain_set if d.endswith("." + remove_domain)}
-        domain_set -= to_remove
-    return domain_set
-
-
 def main():
     print(">>> Processing CN rules...")
     cn_repo_domains, cn_repo_specials = extract_cn_from_geosite()
@@ -486,16 +500,17 @@ def main():
 
     final_cn_domains = {rule[7:] for rule in final_cn if rule.startswith("domain:")}
     final_cn_full = {rule[5:] for rule in final_cn if rule.startswith("full:")}
-    final_cn_domains = remove_with_subdomains(final_cn_domains, cn_remove_domains)
-    final_cn_full = final_cn_full - set(cn_remove_specials)
-    final_cn = [f"domain:{d}" for d in sorted(final_cn_domains)] + [
-        f"full:{f}" for f in sorted(final_cn_full)
-    ]
 
-    final_cn_domains = {rule[7:] for rule in final_cn if rule.startswith("domain:")}
-    final_cn_full = {rule[5:] for rule in final_cn if rule.startswith("full:")}
     final_cn_domains = remove_with_subdomains(final_cn_domains, cn_remove_domains)
     final_cn_full = final_cn_full - set(cn_remove_specials)
+
+    for remove in cn_remove_domains:
+        final_cn_full = {
+            d for d in final_cn_full if d != remove and not d.endswith("." + remove)
+        }
+
+    final_cn_full = clean_full_from_domains(final_cn_full, final_cn_domains)
+
     final_cn = [f"domain:{d}" for d in sorted(final_cn_domains)] + [
         f"full:{f}" for f in sorted(final_cn_full)
     ]
@@ -518,22 +533,19 @@ def main():
         rule[7:] for rule in final_reject if rule.startswith("domain:")
     }
     final_reject_full = {rule[5:] for rule in final_reject if rule.startswith("full:")}
-    final_reject_domains = remove_with_subdomains(
-        final_reject_domains, reject_remove_domains
-    )
-    final_reject_full = final_reject_full - set(reject_remove_specials)
-    final_reject = [f"domain:{d}" for d in sorted(final_reject_domains)] + [
-        f"full:{f}" for f in sorted(final_reject_full)
-    ]
 
-    final_reject_domains = {
-        rule[7:] for rule in final_reject if rule.startswith("domain:")
-    }
-    final_reject_full = {rule[5:] for rule in final_reject if rule.startswith("full:")}
     final_reject_domains = remove_with_subdomains(
         final_reject_domains, reject_remove_domains
     )
     final_reject_full = final_reject_full - set(reject_remove_specials)
+
+    for remove in reject_remove_domains:
+        final_reject_full = {
+            d for d in final_reject_full if d != remove and not d.endswith("." + remove)
+        }
+
+    final_reject_full = clean_full_from_domains(final_reject_full, final_reject_domains)
+
     final_reject = [f"domain:{d}" for d in sorted(final_reject_domains)] + [
         f"full:{f}" for f in sorted(final_reject_full)
     ]
