@@ -9,19 +9,19 @@ import ipaddress
 
 REJECT_SOURCES = [
     {
-        "url": "https://filters.adtidy.org/extension/ublock/filters/224_optimized.txt",
-        "type": "adblock",
-    },
-    {
-        "url": "https://easylist-downloads.adblockplus.org/easylistchina+easylist.txt",
-        "type": "adblock",
-    },
-    {
         "url": "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt",
         "type": "adblock",
     },
     {
         "url": "https://ublockorigin.github.io/uAssetsCDN/filters/filters.min.txt",
+        "type": "adblock",
+    },
+    {
+        "url": "https://filters.adtidy.org/extension/ublock/filters/224_optimized.txt",
+        "type": "adblock",
+    },
+    {
+        "url": "https://easylist-downloads.adblockplus.org/easylistchina.txt",
         "type": "adblock",
     },
     {
