@@ -21,11 +21,23 @@ REJECT_SOURCES = [
         "type": "adblock",
     },
     {
+        "url": "https://ublockorigin.github.io/uAssetsCDN/filters/filters.min.txt",
+        "type": "adblock",
+    },
+    {
         "url": "https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/AWAvenue-Ads-Rule.txt",
         "type": "adblock",
     },
     {
         "url": "https://malware-filter.gitlab.io/malware-filter/urlhaus-filter-hosts-online.txt",
+        "type": "hosts",
+    },
+    {
+        "url": "https://someonewhocares.org/hosts/hosts",
+        "type": "hosts",
+    },
+    {
+        "url": "https://malware-filter.gitlab.io/malware-filter/phishing-filter-hosts.txt",
         "type": "hosts",
     },
 ]
