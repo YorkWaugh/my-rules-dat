@@ -409,16 +409,28 @@ def main():
     cn_repo_domains, cn_repo_specials = extract_cn_from_geosite()
     cn_local_domains, cn_local_specials = read_local_list("rules/my-cn.list")
     cn_remove_domains, cn_remove_specials = read_local_list("rules/my-cn-remove.list")
-    cn_repo_domains = remove_with_subdomains(cn_repo_domains, cn_remove_domains)
-    cn_local_domains = remove_with_subdomains(cn_local_domains, cn_remove_domains)
-    cn_repo_specials = [s for s in cn_repo_specials if s not in cn_remove_specials]
-    cn_local_specials = [s for s in cn_local_specials if s not in cn_remove_specials]
 
     final_cn = deduplicate_and_merge(
         "geolocation-cn",
         cn_repo_domains.union(cn_local_domains),
         cn_repo_specials + cn_local_specials,
     )
+
+    final_cn_domains = {rule[7:] for rule in final_cn if rule.startswith("domain:")}
+    final_cn_full = {rule[5:] for rule in final_cn if rule.startswith("full:")}
+    final_cn_domains = remove_with_subdomains(final_cn_domains, cn_remove_domains)
+    final_cn_full = final_cn_full - set(cn_remove_specials)
+    final_cn = [f"domain:{d}" for d in sorted(final_cn_domains)] + [
+        f"full:{f}" for f in sorted(final_cn_full)
+    ]
+
+    final_cn_domains = {rule[7:] for rule in final_cn if rule.startswith("domain:")}
+    final_cn_full = {rule[5:] for rule in final_cn if rule.startswith("full:")}
+    final_cn_domains = remove_with_subdomains(final_cn_domains, cn_remove_domains)
+    final_cn_full = final_cn_full - set(cn_remove_specials)
+    final_cn = [f"domain:{d}" for d in sorted(final_cn_domains)] + [
+        f"full:{f}" for f in sorted(final_cn_full)
+    ]
 
     print("\n>>> Processing Reject rules...")
     reject_repo_domains, reject_repo_specials = process_reject_upstream()
@@ -428,23 +440,35 @@ def main():
     reject_remove_domains, reject_remove_specials = read_local_list(
         "rules/my-reject-remove.list"
     )
-    reject_repo_domains = remove_with_subdomains(
-        reject_repo_domains, reject_remove_domains
-    )
-    reject_local_domains = remove_with_subdomains(
-        reject_local_domains, reject_remove_domains
-    )
-    reject_repo_specials = [
-        s for s in reject_repo_specials if s not in reject_remove_specials
-    ]
-    reject_local_specials = [
-        s for s in reject_local_specials if s not in reject_remove_specials
-    ]
     final_reject = deduplicate_and_merge(
         "reject",
         reject_repo_domains.union(reject_local_domains),
         reject_repo_specials + reject_local_specials,
     )
+
+    final_reject_domains = {
+        rule[7:] for rule in final_reject if rule.startswith("domain:")
+    }
+    final_reject_full = {rule[5:] for rule in final_reject if rule.startswith("full:")}
+    final_reject_domains = remove_with_subdomains(
+        final_reject_domains, reject_remove_domains
+    )
+    final_reject_full = final_reject_full - set(reject_remove_specials)
+    final_reject = [f"domain:{d}" for d in sorted(final_reject_domains)] + [
+        f"full:{f}" for f in sorted(final_reject_full)
+    ]
+
+    final_reject_domains = {
+        rule[7:] for rule in final_reject if rule.startswith("domain:")
+    }
+    final_reject_full = {rule[5:] for rule in final_reject if rule.startswith("full:")}
+    final_reject_domains = remove_with_subdomains(
+        final_reject_domains, reject_remove_domains
+    )
+    final_reject_full = final_reject_full - set(reject_remove_specials)
+    final_reject = [f"domain:{d}" for d in sorted(final_reject_domains)] + [
+        f"full:{f}" for f in sorted(final_reject_full)
+    ]
 
     meta_dir = "dist/meta/site"
     sing_dir = "dist/sing/site"
