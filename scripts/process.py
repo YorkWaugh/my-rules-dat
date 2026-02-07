@@ -64,10 +64,42 @@ def parse_adblock_rule(line):
         return None, False
 
     if "$" in line:
-        modifier_part = line.split("$", 1)[1]
+        modifier_part = line.split("$", 1)[1].lower()
         if any(
             mod in modifier_part
-            for mod in ["redirect=", "rewrite=", "csp=", "inline-script", "inline-font"]
+            for mod in [
+                "domain=",
+                "third-party",
+                "3p",
+                "badfilter",
+                "all",
+                "popup",
+                "denyallow",
+                "denlyallow",
+                "removeparam",
+                "uritransform",
+                "urlskip",
+                "replace",
+                "redirect",
+                "rewrite",
+                "popunder",
+                "cname",
+                "frame",
+                "from=",
+                "to=",
+                "csp",
+                "elemhide",
+                "generichide",
+                "genericblock",
+                "header",
+                "permissions",
+                "ping",
+                "inline-script",
+                "inline-font",
+                "document",
+                "doc",
+                "app=",
+            ]
         ):
             return None, False
 
