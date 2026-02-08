@@ -61,10 +61,6 @@ jobs:
           echo "Tools ready:"
           ls -l bin/
 
-      - name: Download Upstream Geosite
-        run: |
-          wget -O geosite.dat https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat
-
       - name: Install Python Dependencies
         run: |
           pip install requests
