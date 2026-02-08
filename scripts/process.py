@@ -312,7 +312,12 @@ def extract_cn_from_geosite():
     for filepath in glob.glob("temp_unpack/*"):
         filename = os.path.basename(filepath)
 
-        if filename == "cn" or "category" in filename or "google" in filename:
+        if (
+            filename == "cn"
+            or filename == "geolocation-cn"
+            or "category" in filename
+            or "google" in filename
+        ):
             continue
 
         with open(filepath, "r", encoding="utf-8") as f:
@@ -323,7 +328,9 @@ def extract_cn_from_geosite():
                     if rule_body.startswith("full:"):
                         cn_specials.append(rule_body)
                     elif rule_body.startswith("domain:"):
-                        cn_domains.add(rule_body.replace("domain:", ""))
+                        domain = rule_body.replace("domain:", "")
+                        if not domain.endswith(".cn"):
+                            cn_domains.add(domain)
 
     return cn_domains, cn_specials
 
