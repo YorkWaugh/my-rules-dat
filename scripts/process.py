@@ -351,8 +351,8 @@ def extract_cn_from_geosite(base_dir):
 def read_upstream_list(filename, base_dir):
     """
     Reads a standard upstream list (e.g., cn, geolocation-!cn) from unpacked directory.
-    STRICTLY filters for 'domain' and 'full' types only.
-    Discards 'regexp', 'keyword', etc.
+    Strictly keeps only 'domain', 'full' and implicit domains (no prefix).
+    Discards any other line containing ':' (e.g. regex:, keyword:, include:).
     """
     path = os.path.join(base_dir, filename)
     domains = set()
@@ -370,19 +370,19 @@ def read_upstream_list(filename, base_dir):
                 if "@" in line:
                     line = line.split("@")[0].strip()
 
-                # --- Type Filtering Logic ---
-                if line.startswith("regexp:") or line.startswith("keyword:"):
-                    # DISCARD regex and keyword types as requested
-                    continue
-
                 if line.startswith("full:"):
                     specials.append(line)
-                elif line.startswith("domain:"):
+                    continue
+
+                if line.startswith("domain:"):
                     domains.add(line[7:])
-                else:
-                    # Treat lines without prefix as domain suffix (common in dlc.dat)
-                    # Implicitly, this is 'domain:' type.
-                    domains.add(line)
+                    continue
+
+                if ":" in line:
+                    continue
+
+                domains.add(line)
+
     else:
         print(f"Warning: Upstream list {filename} not found in {base_dir}")
 
