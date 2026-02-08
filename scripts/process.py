@@ -8,11 +8,9 @@ import json
 import ipaddress
 import shutil
 
-# --- Configuration ---
-
 URLS = {
     "geosite": "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
-    "dlc": "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat",
+    "dnsmasq_china": "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/refs/heads/master/accelerated-domains.china.conf",
 }
 
 REJECT_SOURCES = [
@@ -50,11 +48,8 @@ REJECT_SOURCES = [
     },
 ]
 
-# --- Helper Functions ---
-
 
 def download_file(url, target_path=None):
-    """Downloads a file from a URL. Returns content if no target_path, else saves to file."""
     try:
         print(f"Downloading: {url}")
         resp = requests.get(url, timeout=60, stream=True)
@@ -74,12 +69,10 @@ def download_file(url, target_path=None):
 
 
 def unpack_geosite(file_path, output_dir):
-    """Unpacks a geosite/dlc dat file using the binary tool."""
     if not os.path.exists(file_path):
         print(f"File not found: {file_path}")
         return False
 
-    # Clean output directory
     if os.path.exists(output_dir):
         shutil.rmtree(output_dir)
     os.makedirs(output_dir, exist_ok=True)
@@ -126,9 +119,6 @@ def clean_full_from_domains(full_set, domain_set):
         if not is_covered:
             clean_full.add(f)
     return clean_full
-
-
-# --- Parsing Logic ---
 
 
 def parse_adblock_rule(line):
@@ -199,7 +189,6 @@ def parse_adblock_rule(line):
             return None, False
 
     domain = ""
-    # Simple extraction logic for adblock syntax
     if line.startswith("||") and "^" in line:
         caret_pos = line.index("^")
         domain = line[2:caret_pos]
@@ -268,6 +257,18 @@ def parse_hosts_rule(line):
     return None
 
 
+def parse_dnsmasq_rule(line):
+    line = line.strip()
+    if not line or not line.startswith("server=/"):
+        return None
+    parts = line.split("/")
+    if len(parts) >= 2:
+        domain = parts[1]
+        if domain and not is_ip_address(domain):
+            return domain
+    return None
+
+
 def process_reject_upstream():
     blacklist_domains = set()
     blacklist_full = set()
@@ -309,10 +310,6 @@ def process_reject_upstream():
 
 
 def extract_cn_from_geosite(base_dir):
-    """
-    Extracts foreign services in CN (e.g., google@cn) from unpacked MetaCubeX geosite.
-    This preserves your original logic for 'geolocation-cn' exactly.
-    """
     if not os.path.exists(base_dir):
         print(f"Directory not found: {base_dir}")
         return set(), []
@@ -323,7 +320,6 @@ def extract_cn_from_geosite(base_dir):
     for filepath in glob.glob(os.path.join(base_dir, "*")):
         filename = os.path.basename(filepath)
 
-        # Skip standard CN files to focus on foreign services tagged with @cn
         if (
             filename == "cn"
             or filename == "geolocation-cn"
@@ -337,7 +333,6 @@ def extract_cn_from_geosite(base_dir):
                 line = line.strip()
                 if line.endswith("@cn"):
                     rule_body = line.rsplit("@cn", 1)[0].strip()
-                    # Your logic: Only keep 'full' and 'domain' prefixes explicitly.
                     if rule_body.startswith("full:"):
                         cn_specials.append(rule_body)
                     elif rule_body.startswith("domain:"):
@@ -349,9 +344,6 @@ def extract_cn_from_geosite(base_dir):
 
 
 def extract_tagged_domains(base_dir, tag):
-    """
-    Extracts any domains tagged with @tag (e.g., @!cn) from all files in the directory.
-    """
     if not os.path.exists(base_dir):
         print(f"Directory not found: {base_dir}")
         return set(), []
@@ -377,7 +369,6 @@ def extract_tagged_domains(base_dir, tag):
                     elif rule_body.startswith("domain:"):
                         tagged_domains.add(rule_body[7:])
                     elif ":" not in rule_body:
-                        # Implicit domain
                         tagged_domains.add(rule_body)
 
     print(
@@ -387,11 +378,6 @@ def extract_tagged_domains(base_dir, tag):
 
 
 def read_upstream_list(filename, base_dir):
-    """
-    Reads a standard upstream list (e.g., cn, geolocation-!cn) from unpacked directory.
-    Strictly keeps only 'domain', 'full' and implicit domains (no prefix).
-    Discards any other line containing ':' (e.g. regex:, keyword:, include:).
-    """
     path = os.path.join(base_dir, filename)
     domains = set()
     specials = []
@@ -404,7 +390,6 @@ def read_upstream_list(filename, base_dir):
                 if not line or line.startswith("#"):
                     continue
 
-                # Strip attributes (e.g. @attr)
                 if "@" in line:
                     line = line.split("@")[0].strip()
 
@@ -455,13 +440,11 @@ def deduplicate_and_merge(name, domains, specials):
     temp_clean = f"{name}_clean.txt"
     temp_deleted = f"{name}_deleted_sorted.txt"
 
-    # Write domains to file for the python script helper
     with open(temp_redundant, "w", encoding="utf-8") as f:
         f.write("\n".join(sorted(list(domains))))
 
     open(temp_unsorted, "w", encoding="utf-8").close()
 
-    # Call external script to find redundancies
     subprocess.run(
         [
             sys.executable,
@@ -481,7 +464,6 @@ def deduplicate_and_merge(name, domains, specials):
     with open(temp_deleted, "w", encoding="utf-8") as f:
         f.write("\n".join(redundant))
 
-    # Remove redundant domains
     subprocess.run(
         [
             sys.executable,
@@ -518,7 +500,6 @@ def generate_files(name, rules, output_meta, output_sing):
     os.makedirs(output_meta, exist_ok=True)
     os.makedirs(output_sing, exist_ok=True)
 
-    # Meta List
     with open(os.path.join(output_meta, f"{name}.list"), "w", encoding="utf-8") as f:
         lines = []
         for r in rules:
@@ -531,7 +512,6 @@ def generate_files(name, rules, output_meta, output_sing):
         lines.sort()
         f.write("\n".join(lines))
 
-    # Meta YAML
     yaml_path = os.path.join(output_meta, f"{name}.yaml")
     with open(yaml_path, "w", encoding="utf-8") as f:
         f.write("payload:\n")
@@ -543,7 +523,6 @@ def generate_files(name, rules, output_meta, output_sing):
             else:
                 f.write(f"  - '+.{rule}'\n")
 
-    # Sing JSON
     srs_json = {"version": 1, "rules": [{"domain": [], "domain_suffix": []}]}
     for rule in rules:
         if rule.startswith("domain:"):
@@ -587,26 +566,15 @@ def compile_rules(name, json_path, yaml_path, sing_dir, meta_dir):
     )
 
 
-# --- Main Execution ---
-
-
 def main():
     print(">>> Starting Update Process...")
 
-    # 1. Download Upstream DAT files (In Python now)
     print("\n>>> Phase 1: Downloading upstream resources...")
     download_file(URLS["geosite"], "geosite.dat")
-    download_file(URLS["dlc"], "dlc.dat")
 
-    # 2. Unpack DAT files
     print("\n>>> Phase 2: Unpacking resources...")
-    # unpack geosite.dat for geolocation-cn and private (MetaCubeX source)
     unpack_geosite("geosite.dat", "temp_geosite")
-    # unpack dlc.dat for cn/!cn (V2Fly source)
-    unpack_geosite("dlc.dat", "temp_dlc")
 
-    # 3. Process geolocation-cn (Foreign Services in CN)
-    # Source: MetaCubeX (temp_geosite) + Local Lists
     print("\n>>> Phase 3: Processing geolocation-cn (Foreign Services in CN)...")
     cn_repo_domains, cn_repo_specials = extract_cn_from_geosite("temp_geosite")
     cn_local_domains, cn_local_specials = read_local_list("rules/my-cn.list")
@@ -618,7 +586,6 @@ def main():
         cn_repo_specials + cn_local_specials,
     )
 
-    # Post-process for geolocation-cn
     cn_f_domains = {rule[7:] for rule in final_cn_foreign if rule.startswith("domain:")}
     cn_f_full = {rule[5:] for rule in final_cn_foreign if rule.startswith("full:")}
 
@@ -634,18 +601,92 @@ def main():
         f"full:{f}" for f in sorted(cn_f_full)
     ]
 
-    # 4. Process CN (Standard Domestic + domain:cn)
-    # Source: V2Fly (temp_dlc)
-    print("\n>>> Phase 4: Processing CN (Standard Domestic + domain:cn)...")
-    # Reading from dlc.dat which contains the standard CN list
-    std_cn_domains, std_cn_specials = read_upstream_list("cn", "temp_dlc")
+    print("\n>>> Phase 4: Processing CN (dnsmasq_china + all .cn + punycode)...")
+    std_cn_domains = {"cn"}
 
-    # Force Add 'cn' domain (deduplication will handle redundant children)
-    std_cn_domains.add("cn")
+    punycode_cn_tlds = [
+        "xn--fiqs8s",  # .中国
+        "xn--fiqz9s",  # .中國
+        # "xn--j6w193g",  # .香港
+        # "xn--kprw13d",  # .台湾
+        # "xn--kpry57d",  # .台灣
+        # "xn--mix891f",  # .澳門
+        # "xn--yfro4i67o",  # .新加坡
+        "xn--1qqw23a",  # .佛山
+        "xn--xhq521b",  # .广东
+        "xn--55qx5d",  # .公司
+        "xn--io0a7i",  # .网络
+        "xn--3bst00m",  # .集团
+        "xn--czru2d",  # .商城
+        "xn--czrs0t",  # .商店
+        "xn--g2xx48c",  # .购物
+        "xn--hxt814e",  # .网店
+        "xn--czr694b",  # .商标
+        "xn--ses554g",  # .网址
+        "xn--5tzm5g",  # .网站
+        "xn--fiq228c5hs",  # .中文网
+        "xn--vuq861b",  # .信息
+        "xn--rhqv96g",  # .世界
+        "xn--vhquv",  # .企业
+        "xn--unup4y",  # .游戏
+        "xn--fjq720a",  # .娱乐
+        "xn--kput3i",  # .手机
+        "xn--6frz82g",  # .移动
+        "xn--3ds443g",  # .在线
+        "xn--nyqy26a",  # .健康
+        "xn--otu796d",  # .招聘
+        "xn--9et52u",  # .时尚
+        "xn--efvy88h",  # .新闻
+        "xn--imr513n",  # .餐厅
+        "xn--6qq986b3xl",  # .我爱你
+        "xn--45q11c",  # .八卦
+        "xn--55qw42g",  # .公益
+        "xn--30rr7y",  # .慈善
+        "xn--zfr164b",  # .政务
+        "xn--mxtq1m",  # .政府
+        "xn--nqv7f",  # .机构
+        "xn--nqv7fs00ema",  # .组织机构
+        # "xn--tiq49xqyj",  # .天主教
+        "xn--jvr189m",  # .食品
+        "xn--pbt977c",  # .珠宝
+        "xn--kpu716f",  # .手表
+        # "xn--3pxu8k",  # .点看
+        # "xn--pssy2u",  # .大拿
+        "xn--fiq64b",  # .中信
+        "xn--8y0a063a",  # .联通
+        "xn--estv75g",  # .工行
+        "xn--9krt00a",  # .微博
+        # "xn--flw351e",  # .谷歌
+        # "xn--jlq480n2rg",  # .亚马逊
+        # "xn--kcrx77d1x4a",  # .飞利浦
+        # "xn--jlq61u9w7b",  # .诺基亚
+        # "xn--3oq18vl8pn36a",  # .大众汽车
+        # "xn--b4w605ferd",  # .淡马锡
+        # "xn--fzys8d69uvgm",  # .電訊盈科
+        # "xn--5su34j936bgsg",  # .香格里拉
+        # "xn--w4r85el8fhu5dnra",  # .嘉里大酒店
+        # "xn--w4rs40l",  # .嘉里
+        # "xn--4gq48lf9j",  # .一号店
+        # "xn--0zwm56d",  # .测试
+        # "xn--g6w251d",  # .測試
+    ]
+    std_cn_domains.update(punycode_cn_tlds)
+
+    std_cn_specials = []
+
+    print("  -> Downloading and merging dnsmasq-china-list...")
+    acc_content = download_file(URLS["dnsmasq_china"])
+    if acc_content:
+        added_count = 0
+        for line in acc_content.splitlines():
+            d = parse_dnsmasq_rule(line)
+            if d:
+                std_cn_domains.add(d)
+                added_count += 1
+        print(f"  -> Added {added_count} domains from dnsmasq-china-list")
 
     final_cn_full_raw = deduplicate_and_merge("cn", std_cn_domains, std_cn_specials)
 
-    # Cleanup (remove full domains that are covered by wildcard domains)
     cn_full_d = {rule[7:] for rule in final_cn_full_raw if rule.startswith("domain:")}
     cn_full_f = {rule[5:] for rule in final_cn_full_raw if rule.startswith("full:")}
     cn_full_f = clean_full_from_domains(cn_full_f, cn_full_d)
@@ -654,12 +695,11 @@ def main():
         f"full:{f}" for f in sorted(cn_full_f)
     ]
 
-    # 5. Process geolocation-!cn
-    # Source: V2Fly (temp_dlc)
     print("\n>>> Phase 5: Processing geolocation-!cn...")
-    not_cn_domains, not_cn_specials = read_upstream_list("geolocation-!cn", "temp_dlc")
+    not_cn_domains, not_cn_specials = read_upstream_list(
+        "geolocation-!cn", "temp_geosite"
+    )
 
-    # >>> Merge with @!cn domains from MetaCubeX geosite
     print("  -> Merging with @!cn domains from geosite...")
     extra_not_cn_domains, extra_not_cn_specials = extract_tagged_domains(
         "temp_geosite", "!cn"
@@ -671,7 +711,6 @@ def main():
         "geolocation-!cn", not_cn_domains, not_cn_specials
     )
 
-    # Cleanup
     not_cn_d = {rule[7:] for rule in final_not_cn_raw if rule.startswith("domain:")}
     not_cn_f = {rule[5:] for rule in final_not_cn_raw if rule.startswith("full:")}
     not_cn_f = clean_full_from_domains(not_cn_f, not_cn_d)
@@ -680,9 +719,7 @@ def main():
         f"full:{f}" for f in sorted(not_cn_f)
     ]
 
-    # 6. Process Private
     print("\n>>> Phase 6: Processing Private...")
-    # Source: MetaCubeX (temp_geosite)
     private_domains, private_specials = read_upstream_list("private", "temp_geosite")
 
     final_private_raw = deduplicate_and_merge(
@@ -697,7 +734,6 @@ def main():
         f"full:{f}" for f in sorted(priv_f)
     ]
 
-    # 7. Process Reject Rules
     print("\n>>> Phase 7: Processing Reject rules...")
     reject_repo_domains, reject_repo_specials = process_reject_upstream()
     reject_local_domains, reject_local_specials = read_local_list(
@@ -726,51 +762,40 @@ def main():
         f"full:{f}" for f in sorted(rej_f)
     ]
 
-    # 8. Output and Compile
     meta_dir = "dist/meta/site"
     sing_dir = "dist/sing/site"
 
     print("\n>>> Phase 8: Writing and Compiling...")
 
-    # geolocation-cn
     cn_json, cn_yaml = generate_files(
         "geolocation-cn", final_cn_output, meta_dir, sing_dir
     )
     compile_rules("geolocation-cn", cn_json, cn_yaml, sing_dir, meta_dir)
 
-    # cn (Full)
     cn_tag_json, cn_tag_yaml = generate_files(
         "cn", final_cn_full_output, meta_dir, sing_dir
     )
     compile_rules("cn", cn_tag_json, cn_tag_yaml, sing_dir, meta_dir)
 
-    # geolocation-!cn
     not_cn_json, not_cn_yaml = generate_files(
         "geolocation-!cn", final_not_cn_output, meta_dir, sing_dir
     )
     compile_rules("geolocation-!cn", not_cn_json, not_cn_yaml, sing_dir, meta_dir)
 
-    # private
     private_json, private_yaml = generate_files(
         "private", final_private_output, meta_dir, sing_dir
     )
     compile_rules("private", private_json, private_yaml, sing_dir, meta_dir)
 
-    # reject
     reject_json, reject_yaml = generate_files(
         "reject", final_reject_output, meta_dir, sing_dir
     )
     compile_rules("reject", reject_json, reject_yaml, sing_dir, meta_dir)
 
-    # Clean up temp files
     if os.path.exists("temp_geosite"):
         shutil.rmtree("temp_geosite")
-    if os.path.exists("temp_dlc"):
-        shutil.rmtree("temp_dlc")
     if os.path.exists("geosite.dat"):
         os.remove("geosite.dat")
-    if os.path.exists("dlc.dat"):
-        os.remove("dlc.dat")
 
     print("\n>>> All done!")
 
