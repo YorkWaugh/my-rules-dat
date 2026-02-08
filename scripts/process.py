@@ -348,6 +348,44 @@ def extract_cn_from_geosite(base_dir):
     return cn_domains, cn_specials
 
 
+def extract_tagged_domains(base_dir, tag):
+    """
+    Extracts any domains tagged with @tag (e.g., @!cn) from all files in the directory.
+    """
+    if not os.path.exists(base_dir):
+        print(f"Directory not found: {base_dir}")
+        return set(), []
+
+    tagged_domains = set()
+    tagged_specials = []
+    tag_suffix = f"@{tag}"
+
+    print(f"Scanning for tag '{tag_suffix}' in {base_dir}...")
+
+    for filepath in glob.glob(os.path.join(base_dir, "*")):
+        if not os.path.isfile(filepath):
+            continue
+
+        with open(filepath, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.endswith(tag_suffix):
+                    rule_body = line.rsplit(tag_suffix, 1)[0].strip()
+
+                    if rule_body.startswith("full:"):
+                        tagged_specials.append(rule_body)
+                    elif rule_body.startswith("domain:"):
+                        tagged_domains.add(rule_body[7:])
+                    elif ":" not in rule_body:
+                        # Implicit domain
+                        tagged_domains.add(rule_body)
+
+    print(
+        f"  -> Found {len(tagged_domains)} domains and {len(tagged_specials)} specials tagged with {tag_suffix}"
+    )
+    return tagged_domains, tagged_specials
+
+
 def read_upstream_list(filename, base_dir):
     """
     Reads a standard upstream list (e.g., cn, geolocation-!cn) from unpacked directory.
@@ -562,7 +600,7 @@ def main():
 
     # 2. Unpack DAT files
     print("\n>>> Phase 2: Unpacking resources...")
-    # unpack geosite.dat for geolocation-cn (MetaCubeX source)
+    # unpack geosite.dat for geolocation-cn and private (MetaCubeX source)
     unpack_geosite("geosite.dat", "temp_geosite")
     # unpack dlc.dat for cn/!cn (V2Fly source)
     unpack_geosite("dlc.dat", "temp_dlc")
@@ -621,6 +659,14 @@ def main():
     print("\n>>> Phase 5: Processing geolocation-!cn...")
     not_cn_domains, not_cn_specials = read_upstream_list("geolocation-!cn", "temp_dlc")
 
+    # >>> Merge with @!cn domains from MetaCubeX geosite
+    print("  -> Merging with @!cn domains from geosite...")
+    extra_not_cn_domains, extra_not_cn_specials = extract_tagged_domains(
+        "temp_geosite", "!cn"
+    )
+    not_cn_domains.update(extra_not_cn_domains)
+    not_cn_specials.extend(extra_not_cn_specials)
+
     final_not_cn_raw = deduplicate_and_merge(
         "geolocation-!cn", not_cn_domains, not_cn_specials
     )
@@ -634,8 +680,25 @@ def main():
         f"full:{f}" for f in sorted(not_cn_f)
     ]
 
-    # 6. Process Reject Rules
-    print("\n>>> Phase 6: Processing Reject rules...")
+    # 6. Process Private
+    print("\n>>> Phase 6: Processing Private...")
+    # Source: MetaCubeX (temp_geosite)
+    private_domains, private_specials = read_upstream_list("private", "temp_geosite")
+
+    final_private_raw = deduplicate_and_merge(
+        "private", private_domains, private_specials
+    )
+
+    priv_d = {rule[7:] for rule in final_private_raw if rule.startswith("domain:")}
+    priv_f = {rule[5:] for rule in final_private_raw if rule.startswith("full:")}
+    priv_f = clean_full_from_domains(priv_f, priv_d)
+
+    final_private_output = [f"domain:{d}" for d in sorted(priv_d)] + [
+        f"full:{f}" for f in sorted(priv_f)
+    ]
+
+    # 7. Process Reject Rules
+    print("\n>>> Phase 7: Processing Reject rules...")
     reject_repo_domains, reject_repo_specials = process_reject_upstream()
     reject_local_domains, reject_local_specials = read_local_list(
         "rules/my-reject.list"
@@ -663,11 +726,11 @@ def main():
         f"full:{f}" for f in sorted(rej_f)
     ]
 
-    # 7. Output and Compile
+    # 8. Output and Compile
     meta_dir = "dist/meta/site"
     sing_dir = "dist/sing/site"
 
-    print("\n>>> Phase 7: Writing and Compiling...")
+    print("\n>>> Phase 8: Writing and Compiling...")
 
     # geolocation-cn
     cn_json, cn_yaml = generate_files(
@@ -686,6 +749,12 @@ def main():
         "geolocation-!cn", final_not_cn_output, meta_dir, sing_dir
     )
     compile_rules("geolocation-!cn", not_cn_json, not_cn_yaml, sing_dir, meta_dir)
+
+    # private
+    private_json, private_yaml = generate_files(
+        "private", final_private_output, meta_dir, sing_dir
+    )
+    compile_rules("private", private_json, private_yaml, sing_dir, meta_dir)
 
     # reject
     reject_json, reject_yaml = generate_files(
