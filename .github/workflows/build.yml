@@ -1,0 +1,92 @@
+name: Build Rules
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 23 * * *"
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+
+      - name: Prepare Tools
+        run: |
+          mkdir -p bin
+
+          GEO_URL=$(curl -s "https://api.github.com/repos/MetaCubeX/geo/releases/latest" | grep "browser_download_url" | grep "linux-amd64" | head -n 1 | cut -d '"' -f 4)
+          echo "Downloading geo from $GEO_URL"
+          wget -O bin/geo $GEO_URL
+          chmod +x bin/geo
+
+          SING_VERSION=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases/latest" | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
+          SING_URL="https://github.com/SagerNet/sing-box/releases/download/v${SING_VERSION}/sing-box-${SING_VERSION}-linux-amd64.tar.gz"
+          echo "Downloading sing-box version $SING_VERSION from $SING_URL"
+          wget -O sing-box.tar.gz "$SING_URL"
+          tar -zxvf sing-box.tar.gz -C bin
+          mv bin/sing-box-${SING_VERSION}-linux-amd64/sing-box bin/sing-box
+          chmod +x bin/sing-box
+          ./bin/sing-box version
+
+          MIHOMO_VERSION=$(curl -s "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest" | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
+          MIHOMO_URL="https://github.com/MetaCubeX/mihomo/releases/download/v${MIHOMO_VERSION}/mihomo-linux-amd64-v${MIHOMO_VERSION}.gz"
+          echo "Downloading mihomo version $MIHOMO_VERSION from $MIHOMO_URL"
+          wget -O mihomo.gz "$MIHOMO_URL"
+          gzip -d mihomo.gz
+          mv mihomo bin/mihomo
+          chmod +x bin/mihomo
+          ./bin/mihomo -v
+
+          git clone https://github.com/MetaCubeX/meta-rules-converter.git
+          cd meta-rules-converter
+          go build -o ../bin/converter main.go
+          cd ..
+          chmod +x bin/converter
+          echo "Tools ready:"
+          ls -l bin/
+
+      - name: Install Python Dependencies
+        run: |
+          pip install requests
+
+      - name: Run Processing Script
+        run: |
+          python scripts/process.py
+
+      - name: Deploy to Meta Branch
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist/meta
+          publish_branch: meta
+          force_orphan: true
+          user_name: "github-actions[bot]"
+          user_email: "github-actions[bot]@users.noreply.github.com"
+          commit_message: "Update meta rules"
+
+      - name: Deploy to Sing Branch
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist/sing
+          publish_branch: sing
+          force_orphan: true
+          user_name: "github-actions[bot]"
+          user_email: "github-actions[bot]@users.noreply.github.com"
+          commit_message: "Update sing rules"
