@@ -11,6 +11,8 @@ import shutil
 URLS = {
     "geosite": "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
     "dnsmasq_china": "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/accelerated-domains.china.conf",
+    "bogus_nxdomain": "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/bogus-nxdomain.china.conf",
+    "gfw_ip": "https://raw.githubusercontent.com/pmkol/easymosdns/main/rules/gfw_ip_list.txt",
 }
 
 REJECT_SOURCES = [
@@ -51,40 +53,31 @@ REJECT_SOURCES = [
 
 def download_file(url, target_path=None):
     try:
-        print(f"Downloading: {url}")
         resp = requests.get(url, timeout=60, stream=True)
         resp.raise_for_status()
-
         if target_path:
             with open(target_path, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=8192):
                     f.write(chunk)
-            print(f"Saved to {target_path}")
             return True
         else:
             return resp.text
-    except Exception as e:
-        print(f"Error downloading {url}: {e}")
+    except Exception:
         return None if not target_path else False
 
 
 def unpack_geosite(file_path, output_dir):
     if not os.path.exists(file_path):
-        print(f"File not found: {file_path}")
         return False
-
     if os.path.exists(output_dir):
         shutil.rmtree(output_dir)
     os.makedirs(output_dir, exist_ok=True)
-
-    print(f"Unpacking {file_path} to {output_dir}...")
     try:
         subprocess.run(
             ["./bin/geo", "unpack", "site", file_path, "-d", output_dir], check=True
         )
         return True
-    except subprocess.CalledProcessError as e:
-        print(f"Error unpacking {file_path}: {e}")
+    except subprocess.CalledProcessError:
         return False
 
 
@@ -115,7 +108,6 @@ def clean_full_from_domains(full_set, domain_set):
             if suffix in domain_set:
                 is_covered = True
                 break
-
         if not is_covered:
             clean_full.add(f)
     return clean_full
@@ -123,17 +115,13 @@ def clean_full_from_domains(full_set, domain_set):
 
 def parse_adblock_rule(line):
     line = line.strip()
-
     if not line or line.startswith("!") or line.startswith("["):
         return None, False
-
     is_whitelist = line.startswith("@@")
     if is_whitelist:
         line = line[2:]
-
     if "##" in line or "#@#" in line or "#?#" in line or "#$#" in line:
         return None, False
-
     if "$" in line:
         modifier_part = line.split("$", 1)[1].lower()
         if any(
@@ -187,7 +175,6 @@ def parse_adblock_rule(line):
             ]
         ):
             return None, False
-
     domain = ""
     if line.startswith("||") and "^" in line:
         caret_pos = line.index("^")
@@ -199,7 +186,6 @@ def parse_adblock_rule(line):
             return None, False
         if "/" in domain:
             return None, False
-
     elif line.startswith("|http://") or line.startswith("|https://"):
         line = line[1:]
         if "://" in line:
@@ -212,7 +198,6 @@ def parse_adblock_rule(line):
             domain = line
         if "$" in domain:
             domain = domain.split("$")[0]
-
     elif line.startswith("://"):
         domain = line[3:]
         if "/" in domain:
@@ -223,7 +208,6 @@ def parse_adblock_rule(line):
             domain = domain.split("$")[0]
     else:
         return None, False
-
     domain = domain.strip(".")
     if not domain or "." not in domain:
         return None, False
@@ -234,7 +218,6 @@ def parse_adblock_rule(line):
         domain,
     ):
         return None, False
-
     return domain.lower(), is_whitelist
 
 
@@ -269,19 +252,27 @@ def parse_dnsmasq_rule(line):
     return None
 
 
+def parse_bogus_nxdomain(line):
+    line = line.strip()
+    if not line or line.startswith("#"):
+        return None
+    if line.startswith("bogus-nxdomain="):
+        parts = line.split("=")
+        if len(parts) == 2:
+            return parts[1].strip()
+    return None
+
+
 def process_reject_upstream():
     blacklist_domains = set()
     blacklist_full = set()
-
     for source in REJECT_SOURCES:
         content = download_file(source["url"])
         if not content:
             continue
-
         s_black = set()
         s_full = set()
         s_white = set()
-
         for line in content.splitlines():
             if source["type"] == "adblock":
                 domain, is_white = parse_adblock_rule(line)
@@ -294,32 +285,20 @@ def process_reject_upstream():
                 domain = parse_hosts_rule(line)
                 if domain:
                     s_full.add(domain)
-
         s_black = remove_with_subdomains(s_black, s_white)
         s_full = remove_with_subdomains(s_full, s_white)
         blacklist_domains.update(s_black)
         blacklist_full.update(s_full)
-        print(
-            f"  -> Extracted from {source['url']}: {len(s_black)} domains, {len(s_full)} full"
-        )
-
-    print(
-        f"\n  -> Total Reject: {len(blacklist_domains)} domains, {len(blacklist_full)} full"
-    )
     return blacklist_domains, [f"full:{d}" for d in blacklist_full]
 
 
-def extract_cn_from_geosite(base_dir):
+def extract_geocn_from_geosite(base_dir):
     if not os.path.exists(base_dir):
-        print(f"Directory not found: {base_dir}")
         return set(), []
-
-    cn_domains = set()
-    cn_specials = []
-
+    geocn_domains = set()
+    geocn_specials = []
     for filepath in glob.glob(os.path.join(base_dir, "*")):
         filename = os.path.basename(filepath)
-
         if (
             filename == "cn"
             or filename == "geolocation-cn"
@@ -327,53 +306,40 @@ def extract_cn_from_geosite(base_dir):
             or "google" in filename
         ):
             continue
-
         with open(filepath, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line.endswith("@cn"):
                     rule_body = line.rsplit("@cn", 1)[0].strip()
                     if rule_body.startswith("full:"):
-                        cn_specials.append(rule_body)
+                        geocn_specials.append(rule_body)
                     elif rule_body.startswith("domain:"):
                         domain = rule_body.replace("domain:", "")
                         if not domain.endswith(".cn"):
-                            cn_domains.add(domain)
-
-    return cn_domains, cn_specials
+                            geocn_domains.add(domain)
+    return geocn_domains, geocn_specials
 
 
 def extract_tagged_domains(base_dir, tag):
     if not os.path.exists(base_dir):
-        print(f"Directory not found: {base_dir}")
         return set(), []
-
     tagged_domains = set()
     tagged_specials = []
     tag_suffix = f"@{tag}"
-
-    print(f"Scanning for tag '{tag_suffix}' in {base_dir}...")
-
     for filepath in glob.glob(os.path.join(base_dir, "*")):
         if not os.path.isfile(filepath):
             continue
-
         with open(filepath, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line.endswith(tag_suffix):
                     rule_body = line.rsplit(tag_suffix, 1)[0].strip()
-
                     if rule_body.startswith("full:"):
                         tagged_specials.append(rule_body)
                     elif rule_body.startswith("domain:"):
                         tagged_domains.add(rule_body[7:])
                     elif ":" not in rule_body:
                         tagged_domains.add(rule_body)
-
-    print(
-        f"  -> Found {len(tagged_domains)} domains and {len(tagged_specials)} specials tagged with {tag_suffix}"
-    )
     return tagged_domains, tagged_specials
 
 
@@ -381,34 +347,23 @@ def read_upstream_list(filename, base_dir):
     path = os.path.join(base_dir, filename)
     domains = set()
     specials = []
-
     if os.path.exists(path):
-        print(f"Reading upstream list: {filename} from {base_dir}")
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-
                 if "@" in line:
                     line = line.split("@")[0].strip()
-
                 if line.startswith("full:"):
                     specials.append(line)
                     continue
-
                 if line.startswith("domain:"):
                     domains.add(line[7:])
                     continue
-
                 if ":" in line:
                     continue
-
                 domains.add(line)
-
-    else:
-        print(f"Warning: Upstream list {filename} not found in {base_dir}")
-
     return domains, specials
 
 
@@ -416,7 +371,6 @@ def read_local_list(path):
     domains = set()
     specials = []
     if os.path.exists(path):
-        print(f"Reading local rules from: {path}")
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -434,17 +388,13 @@ def read_local_list(path):
 
 
 def deduplicate_and_merge(name, domains, specials):
-    print(f"Deduplicating {name}...")
     temp_unsorted = f"{name}_unsorted.txt"
     temp_redundant = f"{name}_redundant.txt"
     temp_clean = f"{name}_clean.txt"
     temp_deleted = f"{name}_deleted_sorted.txt"
-
     with open(temp_redundant, "w", encoding="utf-8") as f:
         f.write("\n".join(sorted(list(domains))))
-
     open(temp_unsorted, "w", encoding="utf-8").close()
-
     subprocess.run(
         [
             sys.executable,
@@ -454,16 +404,13 @@ def deduplicate_and_merge(name, domains, specials):
         ],
         check=True,
     )
-
     redundant = []
     if os.path.exists(temp_unsorted):
         with open(temp_unsorted, "r", encoding="utf-8") as f:
             redundant = [line.strip() for line in f if line.strip()]
     redundant.sort()
-
     with open(temp_deleted, "w", encoding="utf-8") as f:
         f.write("\n".join(redundant))
-
     subprocess.run(
         [
             sys.executable,
@@ -477,29 +424,23 @@ def deduplicate_and_merge(name, domains, specials):
         ],
         check=True,
     )
-
     final_rules = []
     with open(temp_clean, "r", encoding="utf-8") as f:
         for line in f:
             if line.strip():
                 final_rules.append(f"domain:{line.strip()}")
-
     unique_specials = sorted(list(set(specials)))
     final_rules.extend(unique_specials)
     final_rules.sort()
-
     for f in [temp_unsorted, temp_redundant, temp_clean, temp_deleted]:
         if os.path.exists(f):
             os.remove(f)
-
     return final_rules
 
 
 def generate_files(name, rules, output_meta, output_sing):
-    print(f"Generating files for {name}...")
     os.makedirs(output_meta, exist_ok=True)
     os.makedirs(output_sing, exist_ok=True)
-
     with open(os.path.join(output_meta, f"{name}.list"), "w", encoding="utf-8") as f:
         lines = []
         for r in rules:
@@ -511,7 +452,6 @@ def generate_files(name, rules, output_meta, output_sing):
                 lines.append(r)
         lines.sort()
         f.write("\n".join(lines))
-
     yaml_path = os.path.join(output_meta, f"{name}.yaml")
     with open(yaml_path, "w", encoding="utf-8") as f:
         f.write("payload:\n")
@@ -522,26 +462,21 @@ def generate_files(name, rules, output_meta, output_sing):
                 f.write(f"  - '{rule[5:]}'\n")
             else:
                 f.write(f"  - '+.{rule}'\n")
-
     srs_json = {"version": 1, "rules": [{"domain": [], "domain_suffix": []}]}
     for rule in rules:
         if rule.startswith("domain:"):
             srs_json["rules"][0]["domain_suffix"].append(rule[7:])
         elif rule.startswith("full:"):
             srs_json["rules"][0]["domain"].append(rule[5:])
-
     srs_json["rules"][0]["domain_suffix"].sort()
     srs_json["rules"][0]["domain"].sort()
-
     json_path = os.path.join(output_sing, f"{name}.json")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(srs_json, f, indent=2)
-
     return json_path, yaml_path
 
 
 def compile_rules(name, json_path, yaml_path, sing_dir, meta_dir):
-    print(f"Compiling rules for {name}...")
     subprocess.run(
         [
             "./bin/sing-box",
@@ -566,45 +501,127 @@ def compile_rules(name, json_path, yaml_path, sing_dir, meta_dir):
     )
 
 
-def main():
-    print(">>> Starting Update Process...")
+def process_pollution_upstream():
+    pollution_ips = set()
+    content = download_file(URLS["bogus_nxdomain"])
+    if content:
+        for line in content.splitlines():
+            ip = parse_bogus_nxdomain(line)
+            if ip:
+                try:
+                    ipaddress.ip_address(ip)
+                    pollution_ips.add(ip)
+                except ValueError:
+                    pass
+    content = download_file(URLS["gfw_ip"])
+    if content:
+        for line in content.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            try:
+                ipaddress.ip_network(line, strict=False)
+                pollution_ips.add(line)
+            except ValueError:
+                pass
+    return pollution_ips
 
-    print("\n>>> Phase 1: Downloading upstream resources...")
-    download_file(URLS["geosite"], "geosite.dat")
 
-    print("\n>>> Phase 2: Unpacking resources...")
-    unpack_geosite("geosite.dat", "temp_geosite")
+def simplify_ip_rules(ip_set):
+    ipv4_nets = []
+    ipv6_nets = []
+    for ip_str in ip_set:
+        try:
+            net = ipaddress.ip_network(ip_str, strict=False)
+            if net.version == 4:
+                ipv4_nets.append(net)
+            else:
+                ipv6_nets.append(net)
+        except ValueError:
+            continue
+    collapsed_v4 = ipaddress.collapse_addresses(ipv4_nets)
+    collapsed_v6 = ipaddress.collapse_addresses(ipv6_nets)
+    return [str(n) for n in collapsed_v4] + [str(n) for n in collapsed_v6]
 
-    print("\n>>> Phase 3: Processing geolocation-cn (Foreign Services in CN)...")
-    cn_repo_domains, cn_repo_specials = extract_cn_from_geosite("temp_geosite")
-    cn_local_domains, cn_local_specials = read_local_list("rules/my-cn.list")
-    cn_remove_domains, cn_remove_specials = read_local_list("rules/my-cn-remove.list")
 
-    final_cn_foreign = deduplicate_and_merge(
-        "geolocation-cn",
-        cn_repo_domains.union(cn_local_domains),
-        cn_repo_specials + cn_local_specials,
+def generate_ip_files(name, rules, output_meta, output_sing):
+    os.makedirs(output_meta, exist_ok=True)
+    os.makedirs(output_sing, exist_ok=True)
+    with open(os.path.join(output_meta, f"{name}.list"), "w", encoding="utf-8") as f:
+        f.write("\n".join(rules))
+    yaml_path = os.path.join(output_meta, f"{name}.yaml")
+    with open(yaml_path, "w", encoding="utf-8") as f:
+        f.write("payload:\n")
+        for rule in rules:
+            f.write(f"  - '{rule}'\n")
+    srs_json = {"version": 2, "rules": [{"ip_cidr": rules}]}
+    json_path = os.path.join(output_sing, f"{name}.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(srs_json, f, indent=2)
+    return json_path, yaml_path
+
+
+def compile_ip_rules(name, json_path, yaml_path, sing_dir, meta_dir):
+    subprocess.run(
+        [
+            "./bin/sing-box",
+            "rule-set",
+            "compile",
+            json_path,
+            "-o",
+            os.path.join(sing_dir, f"{name}.srs"),
+        ],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "./bin/mihomo",
+            "convert-ruleset",
+            "ipcidr",
+            "yaml",
+            yaml_path,
+            os.path.join(meta_dir, f"{name}.mrs"),
+        ],
+        check=True,
     )
 
-    cn_f_domains = {rule[7:] for rule in final_cn_foreign if rule.startswith("domain:")}
-    cn_f_full = {rule[5:] for rule in final_cn_foreign if rule.startswith("full:")}
 
-    cn_f_domains = remove_with_subdomains(cn_f_domains, cn_remove_domains)
-    cn_f_full = cn_f_full - set(cn_remove_specials)
-    for remove in cn_remove_domains:
-        cn_f_full = {
-            d for d in cn_f_full if d != remove and not d.endswith("." + remove)
+def main():
+    download_file(URLS["geosite"], "geosite.dat")
+    unpack_geosite("geosite.dat", "temp_geosite")
+
+    geocn_upstream_domains, geocn_upstream_specials = extract_geocn_from_geosite(
+        "temp_geosite"
+    )
+    geocn_local_domains, geocn_local_specials = read_local_list(
+        "rules/my-geolocation-cn.list"
+    )
+    geocn_remove_domains, geocn_remove_specials = read_local_list(
+        "rules/my-geolocation-cn-remove.list"
+    )
+
+    geocn_final_raw = deduplicate_and_merge(
+        "geolocation-cn",
+        geocn_upstream_domains.union(geocn_local_domains),
+        geocn_upstream_specials + geocn_local_specials,
+    )
+    geocn_final_d = {rule[7:] for rule in geocn_final_raw if rule.startswith("domain:")}
+    geocn_final_f = {rule[5:] for rule in geocn_final_raw if rule.startswith("full:")}
+
+    geocn_final_d = remove_with_subdomains(geocn_final_d, geocn_remove_domains)
+    geocn_final_f = geocn_final_f - set(geocn_remove_specials)
+    for remove in geocn_remove_domains:
+        geocn_final_f = {
+            d for d in geocn_final_f if d != remove and not d.endswith("." + remove)
         }
-    cn_f_full = clean_full_from_domains(cn_f_full, cn_f_domains)
+    geocn_final_f = clean_full_from_domains(geocn_final_f, geocn_final_d)
 
-    final_cn_output = [f"domain:{d}" for d in sorted(cn_f_domains)] + [
-        f"full:{f}" for f in sorted(cn_f_full)
+    geocn_output = [f"domain:{d}" for d in sorted(geocn_final_d)] + [
+        f"full:{f}" for f in sorted(geocn_final_f)
     ]
 
-    print("\n>>> Phase 4: Processing CN (dnsmasq_china + all .cn + punycode)...")
-    std_cn_domains = {"cn"}
-
-    punycode_cn_tlds = [
+    cn_upstream_domains = {"cn"}
+    cn_punycode_tlds = [
         "xn--fiqs8s",  # .中国
         "xn--fiqz9s",  # .中國
         # "xn--j6w193g",  # .香港
@@ -670,72 +687,110 @@ def main():
         # "xn--0zwm56d",  # .测试
         # "xn--g6w251d",  # .測試
     ]
-    std_cn_domains.update(punycode_cn_tlds)
+    cn_upstream_domains.update(cn_punycode_tlds)
+    cn_upstream_specials = []
 
-    std_cn_specials = []
-
-    print("  -> Downloading and merging dnsmasq-china-list...")
     acc_content = download_file(URLS["dnsmasq_china"])
     if acc_content:
-        added_count = 0
         for line in acc_content.splitlines():
             d = parse_dnsmasq_rule(line)
             if d:
-                std_cn_domains.add(d)
-                added_count += 1
-        print(f"  -> Added {added_count} domains from dnsmasq-china-list")
+                cn_upstream_domains.add(d)
 
-    final_cn_full_raw = deduplicate_and_merge("cn", std_cn_domains, std_cn_specials)
+    cn_local_domains, cn_local_specials = read_local_list("rules/my-cn.list")
+    cn_remove_domains, cn_remove_specials = read_local_list("rules/my-cn-remove.list")
 
-    cn_full_d = {rule[7:] for rule in final_cn_full_raw if rule.startswith("domain:")}
-    cn_full_f = {rule[5:] for rule in final_cn_full_raw if rule.startswith("full:")}
-    cn_full_f = clean_full_from_domains(cn_full_f, cn_full_d)
+    cn_final_raw = deduplicate_and_merge(
+        "cn",
+        cn_upstream_domains.union(cn_local_domains),
+        cn_upstream_specials + cn_local_specials,
+    )
+    cn_final_d = {rule[7:] for rule in cn_final_raw if rule.startswith("domain:")}
+    cn_final_f = {rule[5:] for rule in cn_final_raw if rule.startswith("full:")}
 
-    final_cn_full_output = [f"domain:{d}" for d in sorted(cn_full_d)] + [
-        f"full:{f}" for f in sorted(cn_full_f)
+    cn_final_d = remove_with_subdomains(cn_final_d, cn_remove_domains)
+    cn_final_f = cn_final_f - set(cn_remove_specials)
+    for remove in cn_remove_domains:
+        cn_final_f = {
+            d for d in cn_final_f if d != remove and not d.endswith("." + remove)
+        }
+    cn_final_f = clean_full_from_domains(cn_final_f, cn_final_d)
+
+    cn_output = [f"domain:{d}" for d in sorted(cn_final_d)] + [
+        f"full:{f}" for f in sorted(cn_final_f)
     ]
 
-    print("\n>>> Phase 5: Processing geolocation-!cn...")
-    not_cn_domains, not_cn_specials = read_upstream_list(
+    notcn_upstream_domains, notcn_upstream_specials = read_upstream_list(
         "geolocation-!cn", "temp_geosite"
     )
-
-    print("  -> Merging with @!cn domains from geosite...")
-    extra_not_cn_domains, extra_not_cn_specials = extract_tagged_domains(
+    extra_notcn_domains, extra_notcn_specials = extract_tagged_domains(
         "temp_geosite", "!cn"
     )
-    not_cn_domains.update(extra_not_cn_domains)
-    not_cn_specials.extend(extra_not_cn_specials)
+    notcn_upstream_domains.update(extra_notcn_domains)
+    notcn_upstream_specials.extend(extra_notcn_specials)
 
-    final_not_cn_raw = deduplicate_and_merge(
-        "geolocation-!cn", not_cn_domains, not_cn_specials
+    notcn_local_domains, notcn_local_specials = read_local_list(
+        "rules/my-geolocation-!cn.list"
+    )
+    notcn_remove_domains, notcn_remove_specials = read_local_list(
+        "rules/my-geolocation-!cn-remove.list"
     )
 
-    not_cn_d = {rule[7:] for rule in final_not_cn_raw if rule.startswith("domain:")}
-    not_cn_f = {rule[5:] for rule in final_not_cn_raw if rule.startswith("full:")}
-    not_cn_f = clean_full_from_domains(not_cn_f, not_cn_d)
+    notcn_final_raw = deduplicate_and_merge(
+        "geolocation-!cn",
+        notcn_upstream_domains.union(notcn_local_domains),
+        notcn_upstream_specials + notcn_local_specials,
+    )
+    notcn_final_d = {rule[7:] for rule in notcn_final_raw if rule.startswith("domain:")}
+    notcn_final_f = {rule[5:] for rule in notcn_final_raw if rule.startswith("full:")}
 
-    final_not_cn_output = [f"domain:{d}" for d in sorted(not_cn_d)] + [
-        f"full:{f}" for f in sorted(not_cn_f)
+    notcn_final_d = remove_with_subdomains(notcn_final_d, notcn_remove_domains)
+    notcn_final_f = notcn_final_f - set(notcn_remove_specials)
+    for remove in notcn_remove_domains:
+        notcn_final_f = {
+            d for d in notcn_final_f if d != remove and not d.endswith("." + remove)
+        }
+    notcn_final_f = clean_full_from_domains(notcn_final_f, notcn_final_d)
+
+    notcn_output = [f"domain:{d}" for d in sorted(notcn_final_d)] + [
+        f"full:{f}" for f in sorted(notcn_final_f)
     ]
 
-    print("\n>>> Phase 6: Processing Private...")
-    private_domains, private_specials = read_upstream_list("private", "temp_geosite")
-
-    final_private_raw = deduplicate_and_merge(
-        "private", private_domains, private_specials
+    private_upstream_domains, private_upstream_specials = read_upstream_list(
+        "private", "temp_geosite"
+    )
+    private_local_domains, private_local_specials = read_local_list(
+        "rules/my-private.list"
+    )
+    private_remove_domains, private_remove_specials = read_local_list(
+        "rules/my-private-remove.list"
     )
 
-    priv_d = {rule[7:] for rule in final_private_raw if rule.startswith("domain:")}
-    priv_f = {rule[5:] for rule in final_private_raw if rule.startswith("full:")}
-    priv_f = clean_full_from_domains(priv_f, priv_d)
+    private_final_raw = deduplicate_and_merge(
+        "private",
+        private_upstream_domains.union(private_local_domains),
+        private_upstream_specials + private_local_specials,
+    )
+    private_final_d = {
+        rule[7:] for rule in private_final_raw if rule.startswith("domain:")
+    }
+    private_final_f = {
+        rule[5:] for rule in private_final_raw if rule.startswith("full:")
+    }
 
-    final_private_output = [f"domain:{d}" for d in sorted(priv_d)] + [
-        f"full:{f}" for f in sorted(priv_f)
+    private_final_d = remove_with_subdomains(private_final_d, private_remove_domains)
+    private_final_f = private_final_f - set(private_remove_specials)
+    for remove in private_remove_domains:
+        private_final_f = {
+            d for d in private_final_f if d != remove and not d.endswith("." + remove)
+        }
+    private_final_f = clean_full_from_domains(private_final_f, private_final_d)
+
+    private_output = [f"domain:{d}" for d in sorted(private_final_d)] + [
+        f"full:{f}" for f in sorted(private_final_f)
     ]
 
-    print("\n>>> Phase 7: Processing Reject rules...")
-    reject_repo_domains, reject_repo_specials = process_reject_upstream()
+    reject_upstream_domains, reject_upstream_specials = process_reject_upstream()
     reject_local_domains, reject_local_specials = read_local_list(
         "rules/my-reject.list"
     )
@@ -743,61 +798,90 @@ def main():
         "rules/my-reject-remove.list"
     )
 
-    final_reject = deduplicate_and_merge(
+    reject_final_raw = deduplicate_and_merge(
         "reject",
-        reject_repo_domains.union(reject_local_domains),
-        reject_repo_specials + reject_local_specials,
+        reject_upstream_domains.union(reject_local_domains),
+        reject_upstream_specials + reject_local_specials,
     )
+    reject_final_d = {
+        rule[7:] for rule in reject_final_raw if rule.startswith("domain:")
+    }
+    reject_final_f = {rule[5:] for rule in reject_final_raw if rule.startswith("full:")}
 
-    rej_d = {rule[7:] for rule in final_reject if rule.startswith("domain:")}
-    rej_f = {rule[5:] for rule in final_reject if rule.startswith("full:")}
-
-    rej_d = remove_with_subdomains(rej_d, reject_remove_domains)
-    rej_f = rej_f - set(reject_remove_specials)
+    reject_final_d = remove_with_subdomains(reject_final_d, reject_remove_domains)
+    reject_final_f = reject_final_f - set(reject_remove_specials)
     for remove in reject_remove_domains:
-        rej_f = {d for d in rej_f if d != remove and not d.endswith("." + remove)}
-    rej_f = clean_full_from_domains(rej_f, rej_d)
+        reject_final_f = {
+            d for d in reject_final_f if d != remove and not d.endswith("." + remove)
+        }
+    reject_final_f = clean_full_from_domains(reject_final_f, reject_final_d)
 
-    final_reject_output = [f"domain:{d}" for d in sorted(rej_d)] + [
-        f"full:{f}" for f in sorted(rej_f)
+    reject_output = [f"domain:{d}" for d in sorted(reject_final_d)] + [
+        f"full:{f}" for f in sorted(reject_final_f)
     ]
 
     meta_dir = "dist/meta/site"
     sing_dir = "dist/sing/site"
 
-    print("\n>>> Phase 8: Writing and Compiling...")
-
-    cn_json, cn_yaml = generate_files(
-        "geolocation-cn", final_cn_output, meta_dir, sing_dir
+    geocn_json, geocn_yaml = generate_files(
+        "geolocation-cn", geocn_output, meta_dir, sing_dir
     )
-    compile_rules("geolocation-cn", cn_json, cn_yaml, sing_dir, meta_dir)
+    compile_rules("geolocation-cn", geocn_json, geocn_yaml, sing_dir, meta_dir)
 
-    cn_tag_json, cn_tag_yaml = generate_files(
-        "cn", final_cn_full_output, meta_dir, sing_dir
-    )
-    compile_rules("cn", cn_tag_json, cn_tag_yaml, sing_dir, meta_dir)
+    cn_json, cn_yaml = generate_files("cn", cn_output, meta_dir, sing_dir)
+    compile_rules("cn", cn_json, cn_yaml, sing_dir, meta_dir)
 
-    not_cn_json, not_cn_yaml = generate_files(
-        "geolocation-!cn", final_not_cn_output, meta_dir, sing_dir
+    notcn_json, notcn_yaml = generate_files(
+        "geolocation-!cn", notcn_output, meta_dir, sing_dir
     )
-    compile_rules("geolocation-!cn", not_cn_json, not_cn_yaml, sing_dir, meta_dir)
+    compile_rules("geolocation-!cn", notcn_json, notcn_yaml, sing_dir, meta_dir)
 
     private_json, private_yaml = generate_files(
-        "private", final_private_output, meta_dir, sing_dir
+        "private", private_output, meta_dir, sing_dir
     )
     compile_rules("private", private_json, private_yaml, sing_dir, meta_dir)
 
     reject_json, reject_yaml = generate_files(
-        "reject", final_reject_output, meta_dir, sing_dir
+        "reject", reject_output, meta_dir, sing_dir
     )
     compile_rules("reject", reject_json, reject_yaml, sing_dir, meta_dir)
+
+    pollution_upstream_ips = process_pollution_upstream()
+    pollution_local_ips = set()
+    if os.path.exists("rules/my-pollution-ip.list"):
+        with open("rules/my-pollution-ip.list", "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    pollution_local_ips.add(line)
+
+    pollution_remove_ips = set()
+    if os.path.exists("rules/my-pollution-ip-remove.list"):
+        with open("rules/my-pollution-ip-remove.list", "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    pollution_remove_ips.add(line)
+
+    pollution_final_ips = (
+        pollution_upstream_ips.union(pollution_local_ips) - pollution_remove_ips
+    )
+    pollution_output = simplify_ip_rules(pollution_final_ips)
+
+    ip_meta_dir = "dist/meta/ip"
+    ip_sing_dir = "dist/sing/ip"
+
+    pollution_json, pollution_yaml = generate_ip_files(
+        "pollution", pollution_output, ip_meta_dir, ip_sing_dir
+    )
+    compile_ip_rules(
+        "pollution", pollution_json, pollution_yaml, ip_sing_dir, ip_meta_dir
+    )
 
     if os.path.exists("temp_geosite"):
         shutil.rmtree("temp_geosite")
     if os.path.exists("geosite.dat"):
         os.remove("geosite.dat")
-
-    print("\n>>> All done!")
 
 
 if __name__ == "__main__":
