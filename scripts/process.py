@@ -135,7 +135,6 @@ def parse_adblock_rule(line):
                 "third-party",
                 "3p",
                 "badfilter",
-                "all",
                 "popup",
                 "denyallow",
                 "denlyallow",
@@ -270,14 +269,18 @@ def parse_bogus_nxdomain(line):
 def process_reject_upstream():
     blacklist_domains = set()
     blacklist_full = set()
+    print("Processing Reject Sources...")
     for source in REJECT_SOURCES:
         content = download_file(source["url"])
         if not content:
+            print(f"  [X] Failed to download: {source['url']}")
             continue
         s_black = set()
         s_full = set()
         s_white = set()
+        line_count = 0
         for line in content.splitlines():
+            line_count += 1
             if source["type"] == "adblock":
                 domain, is_white = parse_adblock_rule(line)
                 if domain:
@@ -289,8 +292,15 @@ def process_reject_upstream():
                 domain = parse_hosts_rule(line)
                 if domain:
                     s_full.add(domain)
+
         s_black = remove_with_subdomains(s_black, s_white)
         s_full = remove_with_subdomains(s_full, s_white)
+
+        print(f"  [OK] {source['url']}")
+        print(
+            f"       Rules Parsed: {line_count}, Block Domains: {len(s_black)}, Hosts: {len(s_full)}, Whitelist: {len(s_white)}"
+        )
+
         blacklist_domains.update(s_black)
         blacklist_full.update(s_full)
     return blacklist_domains, [f"full:{d}" for d in blacklist_full]
@@ -590,10 +600,34 @@ def compile_ip_rules(name, json_path, yaml_path, sing_dir, meta_dir):
     )
 
 
+def apply_removal_and_clean_specials(
+    upstream_domains, upstream_specials, remove_domains, remove_specials
+):
+    upstream_domains = remove_with_subdomains(upstream_domains, remove_domains)
+
+    upstream_specials_set = set(upstream_specials) - set(remove_specials)
+    final_specials = []
+    for s in upstream_specials_set:
+        if s.startswith("full:"):
+            domain = s[5:]
+            if not any(
+                domain == rm or domain.endswith("." + rm) for rm in remove_domains
+            ):
+                final_specials.append(s)
+        else:
+            final_specials.append(s)
+    return upstream_domains, final_specials
+
+
 def main():
+    print("Downloading geosite.dat...")
     download_file(URLS["geosite"], "geosite.dat")
     unpack_geosite("geosite.dat", "temp_geosite")
 
+    # ------------------------------------------------
+    # GEOLOCATION-CN
+    # ------------------------------------------------
+    print("Processing geolocation-cn...")
     geocn_upstream_domains, geocn_upstream_specials = extract_geocn_from_geosite(
         "temp_geosite"
     )
@@ -604,6 +638,13 @@ def main():
         "rules/my-geolocation-cn-remove.list"
     )
 
+    geocn_upstream_domains, geocn_upstream_specials = apply_removal_and_clean_specials(
+        geocn_upstream_domains,
+        geocn_upstream_specials,
+        geocn_remove_domains,
+        geocn_remove_specials,
+    )
+
     geocn_final_raw = deduplicate_and_merge(
         "geolocation-cn",
         geocn_upstream_domains.union(geocn_local_domains),
@@ -611,19 +652,13 @@ def main():
     )
     geocn_final_d = {rule[7:] for rule in geocn_final_raw if rule.startswith("domain:")}
     geocn_final_f = {rule[5:] for rule in geocn_final_raw if rule.startswith("full:")}
-
-    geocn_final_d = remove_with_subdomains(geocn_final_d, geocn_remove_domains)
-    geocn_final_f = geocn_final_f - set(geocn_remove_specials)
-    for remove in geocn_remove_domains:
-        geocn_final_f = {
-            d for d in geocn_final_f if d != remove and not d.endswith("." + remove)
-        }
     geocn_final_f = clean_full_from_domains(geocn_final_f, geocn_final_d)
 
     geocn_output = [f"domain:{d}" for d in sorted(geocn_final_d)] + [
         f"full:{f}" for f in sorted(geocn_final_f)
     ]
 
+    print("Processing cn...")
     cn_upstream_domains = {"cn"}
     cn_punycode_tlds = [
         "xn--fiqs8s",  # .中国
@@ -704,6 +739,10 @@ def main():
     cn_local_domains, cn_local_specials = read_local_list("rules/my-cn.list")
     cn_remove_domains, cn_remove_specials = read_local_list("rules/my-cn-remove.list")
 
+    cn_upstream_domains, cn_upstream_specials = apply_removal_and_clean_specials(
+        cn_upstream_domains, cn_upstream_specials, cn_remove_domains, cn_remove_specials
+    )
+
     cn_final_raw = deduplicate_and_merge(
         "cn",
         cn_upstream_domains.union(cn_local_domains),
@@ -711,19 +750,13 @@ def main():
     )
     cn_final_d = {rule[7:] for rule in cn_final_raw if rule.startswith("domain:")}
     cn_final_f = {rule[5:] for rule in cn_final_raw if rule.startswith("full:")}
-
-    cn_final_d = remove_with_subdomains(cn_final_d, cn_remove_domains)
-    cn_final_f = cn_final_f - set(cn_remove_specials)
-    for remove in cn_remove_domains:
-        cn_final_f = {
-            d for d in cn_final_f if d != remove and not d.endswith("." + remove)
-        }
     cn_final_f = clean_full_from_domains(cn_final_f, cn_final_d)
 
     cn_output = [f"domain:{d}" for d in sorted(cn_final_d)] + [
         f"full:{f}" for f in sorted(cn_final_f)
     ]
 
+    print("Processing geolocation-!cn...")
     notcn_upstream_domains, notcn_upstream_specials = read_upstream_list(
         "geolocation-!cn", "temp_geosite"
     )
@@ -740,6 +773,13 @@ def main():
         "rules/my-geolocation-!cn-remove.list"
     )
 
+    notcn_upstream_domains, notcn_upstream_specials = apply_removal_and_clean_specials(
+        notcn_upstream_domains,
+        notcn_upstream_specials,
+        notcn_remove_domains,
+        notcn_remove_specials,
+    )
+
     notcn_final_raw = deduplicate_and_merge(
         "geolocation-!cn",
         notcn_upstream_domains.union(notcn_local_domains),
@@ -747,19 +787,13 @@ def main():
     )
     notcn_final_d = {rule[7:] for rule in notcn_final_raw if rule.startswith("domain:")}
     notcn_final_f = {rule[5:] for rule in notcn_final_raw if rule.startswith("full:")}
-
-    notcn_final_d = remove_with_subdomains(notcn_final_d, notcn_remove_domains)
-    notcn_final_f = notcn_final_f - set(notcn_remove_specials)
-    for remove in notcn_remove_domains:
-        notcn_final_f = {
-            d for d in notcn_final_f if d != remove and not d.endswith("." + remove)
-        }
     notcn_final_f = clean_full_from_domains(notcn_final_f, notcn_final_d)
 
     notcn_output = [f"domain:{d}" for d in sorted(notcn_final_d)] + [
         f"full:{f}" for f in sorted(notcn_final_f)
     ]
 
+    print("Processing private...")
     private_upstream_domains, private_upstream_specials = read_upstream_list(
         "private", "temp_geosite"
     )
@@ -768,6 +802,15 @@ def main():
     )
     private_remove_domains, private_remove_specials = read_local_list(
         "rules/my-private-remove.list"
+    )
+
+    private_upstream_domains, private_upstream_specials = (
+        apply_removal_and_clean_specials(
+            private_upstream_domains,
+            private_upstream_specials,
+            private_remove_domains,
+            private_remove_specials,
+        )
     )
 
     private_final_raw = deduplicate_and_merge(
@@ -781,25 +824,28 @@ def main():
     private_final_f = {
         rule[5:] for rule in private_final_raw if rule.startswith("full:")
     }
-
-    private_final_d = remove_with_subdomains(private_final_d, private_remove_domains)
-    private_final_f = private_final_f - set(private_remove_specials)
-    for remove in private_remove_domains:
-        private_final_f = {
-            d for d in private_final_f if d != remove and not d.endswith("." + remove)
-        }
     private_final_f = clean_full_from_domains(private_final_f, private_final_d)
 
     private_output = [f"domain:{d}" for d in sorted(private_final_d)] + [
         f"full:{f}" for f in sorted(private_final_f)
     ]
 
+    print("Processing reject...")
     reject_upstream_domains, reject_upstream_specials = process_reject_upstream()
     reject_local_domains, reject_local_specials = read_local_list(
         "rules/my-reject.list"
     )
     reject_remove_domains, reject_remove_specials = read_local_list(
         "rules/my-reject-remove.list"
+    )
+
+    reject_upstream_domains, reject_upstream_specials = (
+        apply_removal_and_clean_specials(
+            reject_upstream_domains,
+            reject_upstream_specials,
+            reject_remove_domains,
+            reject_remove_specials,
+        )
     )
 
     reject_final_raw = deduplicate_and_merge(
@@ -811,13 +857,6 @@ def main():
         rule[7:] for rule in reject_final_raw if rule.startswith("domain:")
     }
     reject_final_f = {rule[5:] for rule in reject_final_raw if rule.startswith("full:")}
-
-    reject_final_d = remove_with_subdomains(reject_final_d, reject_remove_domains)
-    reject_final_f = reject_final_f - set(reject_remove_specials)
-    for remove in reject_remove_domains:
-        reject_final_f = {
-            d for d in reject_final_f if d != remove and not d.endswith("." + remove)
-        }
     reject_final_f = clean_full_from_domains(reject_final_f, reject_final_d)
 
     reject_output = [f"domain:{d}" for d in sorted(reject_final_d)] + [
