@@ -29,11 +29,15 @@ REJECT_SOURCES = [
         "type": "adblock",
     },
     {
-        "url": "https://easylist-downloads.adblockplus.org/easylistchina.txt",
+        "url": "https://easylist-downloads.adblockplus.org/easylistchina+easylist.txt",
         "type": "adblock",
     },
     {
         "url": "https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/AWAvenue-Ads-Rule.txt",
+        "type": "adblock",
+    },
+    {
+        "url": "https://ublockorigin.github.io/uAssetsCDN/filters//badware.min.txt",
         "type": "adblock",
     },
     {
