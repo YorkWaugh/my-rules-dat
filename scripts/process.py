@@ -13,6 +13,7 @@ URLS = {
     "dnsmasq_china": "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/accelerated-domains.china.conf",
     "bogus_nxdomain": "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/bogus-nxdomain.china.conf",
     "gfw_ip": "https://raw.githubusercontent.com/pmkol/easymosdns/main/rules/gfw_ip_list.txt",
+    "hijacking": "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Hijacking/Hijacking.list",
 }
 
 REJECT_SOURCES = [
@@ -264,6 +265,30 @@ def parse_bogus_nxdomain(line):
         if len(parts) == 2:
             return parts[1].strip()
     return None
+
+
+def parse_clash_list(content):
+    domains = set()
+    ips = set()
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(",")
+        if len(parts) < 2:
+            continue
+        type_ = parts[0].strip().upper()
+        value = parts[1].strip()
+
+        if type_ in ["DOMAIN", "DOMAIN-SUFFIX"]:
+            domains.add(value)
+        elif type_ in ["IP-CIDR", "IP-CIDR6"]:
+            try:
+                ipaddress.ip_network(value, strict=False)
+                ips.add(value)
+            except ValueError:
+                pass
+    return domains, ips
 
 
 def process_reject_upstream():
@@ -624,9 +649,18 @@ def main():
     download_file(URLS["geosite"], "geosite.dat")
     unpack_geosite("geosite.dat", "temp_geosite")
 
-    # ------------------------------------------------
-    # GEOLOCATION-CN
-    # ------------------------------------------------
+    print("Downloading Hijacking list...")
+    hijacking_content = download_file(URLS["hijacking"])
+    hijacking_domains = set()
+    hijacking_ips = set()
+    if hijacking_content:
+        hijacking_domains, hijacking_ips = parse_clash_list(hijacking_content)
+        print(
+            f"  [OK] Hijacking List Parsed: Domains: {len(hijacking_domains)}, IPs: {len(hijacking_ips)}"
+        )
+    else:
+        print("  [X] Failed to download Hijacking list")
+
     print("Processing geolocation-cn...")
     geocn_upstream_domains, geocn_upstream_specials = extract_geocn_from_geosite(
         "temp_geosite"
@@ -832,6 +866,9 @@ def main():
 
     print("Processing reject...")
     reject_upstream_domains, reject_upstream_specials = process_reject_upstream()
+
+    reject_upstream_domains.update(hijacking_domains)
+
     reject_local_domains, reject_local_specials = read_local_list(
         "rules/my-reject.list"
     )
@@ -889,6 +926,7 @@ def main():
     )
     compile_rules("reject", reject_json, reject_yaml, sing_dir, meta_dir)
 
+    print("Processing pollution IP...")
     pollution_upstream_ips = process_pollution_upstream()
     pollution_local_ips = set()
     if os.path.exists("rules/my-pollution-ip.list"):
@@ -911,6 +949,29 @@ def main():
     )
     pollution_output = simplify_ip_rules(pollution_final_ips)
 
+    print("Processing reject IP...")
+
+    reject_ip_upstream = hijacking_ips
+
+    reject_ip_local = set()
+    if os.path.exists("rules/my-reject-ip.list"):
+        with open("rules/my-reject-ip.list", "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    reject_ip_local.add(line)
+
+    reject_ip_remove = set()
+    if os.path.exists("rules/my-reject-ip-remove.list"):
+        with open("rules/my-reject-ip-remove.list", "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    reject_ip_remove.add(line)
+
+    reject_ip_final = reject_ip_upstream.union(reject_ip_local) - reject_ip_remove
+    reject_ip_output = simplify_ip_rules(reject_ip_final)
+
     ip_meta_dir = "dist/meta/ip"
     ip_sing_dir = "dist/sing/ip"
 
@@ -920,6 +981,11 @@ def main():
     compile_ip_rules(
         "pollution", pollution_json, pollution_yaml, ip_sing_dir, ip_meta_dir
     )
+
+    reject_ip_json, reject_ip_yaml = generate_ip_files(
+        "reject", reject_ip_output, ip_meta_dir, ip_sing_dir
+    )
+    compile_ip_rules("reject", reject_ip_json, reject_ip_yaml, ip_sing_dir, ip_meta_dir)
 
     if os.path.exists("temp_geosite"):
         shutil.rmtree("temp_geosite")
