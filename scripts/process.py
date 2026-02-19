@@ -14,6 +14,8 @@ URLS = {
     "bogus_nxdomain": "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/bogus-nxdomain.china.conf",
     "gfw_ip": "https://raw.githubusercontent.com/pmkol/easymosdns/main/rules/gfw_ip_list.txt",
     "hijacking": "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Hijacking/Hijacking.list",
+    "google_china": "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/google.china.conf",
+    "apple_china": "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/apple.china.conf",
 }
 
 REJECT_SOURCES = [
@@ -666,6 +668,21 @@ def main():
     geocn_upstream_domains, geocn_upstream_specials = extract_geocn_from_geosite(
         "temp_geosite"
     )
+
+    # google_content = download_file(URLS["google_china"])
+    # if google_content:
+    #     for line in google_content.splitlines():
+    #         d = parse_dnsmasq_rule(line)
+    #         if d:
+    #             geocn_upstream_domains.add(d)
+
+    apple_content = download_file(URLS["apple_china"])
+    if apple_content:
+        for line in apple_content.splitlines():
+            d = parse_dnsmasq_rule(line)
+            if d:
+                geocn_upstream_domains.add(d)
+
     geocn_local_domains, geocn_local_specials = read_local_list(
         "rules/my-geolocation-cn.list"
     )
