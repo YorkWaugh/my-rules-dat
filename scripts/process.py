@@ -343,6 +343,7 @@ def extract_geocn_from_geosite(base_dir):
             or filename == "geolocation-cn"
             or "category" in filename
             or "google" in filename
+            or "apple" in filename
         ):
             continue
         with open(filepath, "r", encoding="utf-8") as f:
