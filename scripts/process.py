@@ -669,12 +669,12 @@ def main():
         "temp_geosite"
     )
 
-    # google_content = download_file(URLS["google_china"])
-    # if google_content:
-    #     for line in google_content.splitlines():
-    #         d = parse_dnsmasq_rule(line)
-    #         if d:
-    #             geocn_upstream_domains.add(d)
+    google_content = download_file(URLS["google_china"])
+    if google_content:
+        for line in google_content.splitlines():
+            d = parse_dnsmasq_rule(line)
+            if d:
+                geocn_upstream_domains.add(d)
 
     apple_content = download_file(URLS["apple_china"])
     if apple_content:
