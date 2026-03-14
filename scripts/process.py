@@ -11,7 +11,6 @@ import shutil
 URLS = {
     "geosite": "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
     "dnsmasq_china": "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/accelerated-domains.china.conf",
-    "bogus_nxdomain": "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/bogus-nxdomain.china.conf",
     "gfw_ip": "https://raw.githubusercontent.com/pmkol/easymosdns/main/rules/gfw_ip_list.txt",
     "hijacking": "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Hijacking/Hijacking.list",
     "google_china": "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/google.china.conf",
@@ -255,17 +254,6 @@ def parse_dnsmasq_rule(line):
         domain = parts[1]
         if domain and not is_ip_address(domain):
             return domain
-    return None
-
-
-def parse_bogus_nxdomain(line):
-    line = line.strip()
-    if not line or line.startswith("#"):
-        return None
-    if line.startswith("bogus-nxdomain="):
-        parts = line.split("=")
-        if len(parts) == 2:
-            return parts[1].strip()
     return None
 
 
@@ -545,16 +533,6 @@ def compile_rules(name, json_path, yaml_path, sing_dir, meta_dir):
 
 def process_pollution_upstream():
     pollution_ips = set()
-    content = download_file(URLS["bogus_nxdomain"])
-    if content:
-        for line in content.splitlines():
-            ip = parse_bogus_nxdomain(line)
-            if ip:
-                try:
-                    ipaddress.ip_address(ip)
-                    pollution_ips.add(ip)
-                except ValueError:
-                    pass
     content = download_file(URLS["gfw_ip"])
     if content:
         for line in content.splitlines():
