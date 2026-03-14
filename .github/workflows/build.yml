@@ -21,11 +21,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "stable"
-
       - name: Prepare Tools
         run: |
           mkdir -p bin
@@ -52,14 +47,6 @@ jobs:
           mv mihomo bin/mihomo
           chmod +x bin/mihomo
           ./bin/mihomo -v
-
-          git clone https://github.com/MetaCubeX/meta-rules-converter.git
-          cd meta-rules-converter
-          go build -o ../bin/converter main.go
-          cd ..
-          chmod +x bin/converter
-          echo "Tools ready:"
-          ls -l bin/
 
       - name: Install Python Dependencies
         run: |
