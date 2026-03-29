@@ -575,7 +575,7 @@ def build_geolocation_cn(geosite_dir, meta_dir, sing_dir):
     print("Building geolocation-cn...")
 
     UPSTREAM_APPLE = "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/apple.china.conf"
-    UPSTREAM_GOOGLE = "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/google.china.conf"
+    # UPSTREAM_GOOGLE = "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/google.china.conf"
 
     domains, specials = extract_geocn_from_geosite(geosite_dir)
     content = download_file(UPSTREAM_APPLE)
@@ -584,12 +584,12 @@ def build_geolocation_cn(geosite_dir, meta_dir, sing_dir):
             d = parse_dnsmasq_rule(line)
             if d:
                 domains.add(d)
-    content = download_file(UPSTREAM_GOOGLE)
-    if content:
-        for line in content.splitlines():
-            d = parse_dnsmasq_rule(line)
-            if d:
-                domains.add(d)
+    # content = download_file(UPSTREAM_GOOGLE)
+    # if content:
+    #     for line in content.splitlines():
+    #         d = parse_dnsmasq_rule(line)
+    #         if d:
+    #             domains.add(d)
 
     process_domain_rules("geolocation-cn", domains, specials, meta_dir, sing_dir)
 
