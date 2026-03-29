@@ -8,54 +8,6 @@ import json
 import ipaddress
 import shutil
 
-URLS = {
-    "geosite": "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
-    "dnsmasq_china": "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/accelerated-domains.china.conf",
-    "gfw_ip": "https://raw.githubusercontent.com/pmkol/easymosdns/main/rules/gfw_ip_list.txt",
-    "hijacking": "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Hijacking/Hijacking.list",
-    "google_china": "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/google.china.conf",
-    "apple_china": "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/apple.china.conf",
-}
-
-REJECT_SOURCES = [
-    {
-        "url": "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt",
-        "type": "adblock",
-    },
-    {
-        "url": "https://ublockorigin.github.io/uAssetsCDN/filters/filters.min.txt",
-        "type": "adblock",
-    },
-    {
-        "url": "https://filters.adtidy.org/extension/ublock/filters/224_optimized.txt",
-        "type": "adblock",
-    },
-    {
-        "url": "https://easylist-downloads.adblockplus.org/easylistchina+easylist.txt",
-        "type": "adblock",
-    },
-    {
-        "url": "https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/AWAvenue-Ads-Rule.txt",
-        "type": "adblock",
-    },
-    {
-        "url": "https://ublockorigin.github.io/uAssetsCDN/filters//badware.min.txt",
-        "type": "adblock",
-    },
-    {
-        "url": "https://malware-filter.gitlab.io/malware-filter/urlhaus-filter-hosts-online.txt",
-        "type": "hosts",
-    },
-    {
-        "url": "https://someonewhocares.org/hosts/hosts",
-        "type": "hosts",
-    },
-    {
-        "url": "https://malware-filter.gitlab.io/malware-filter/phishing-filter-hosts.txt",
-        "type": "hosts",
-    },
-]
-
 
 def download_file(url, target_path=None):
     try:
@@ -123,63 +75,65 @@ def parse_adblock_rule(line):
     line = line.strip()
     if not line or line.startswith("!") or line.startswith("["):
         return None, False
+
     is_whitelist = line.startswith("@@")
     if is_whitelist:
         line = line[2:]
-    if "##" in line or "#@#" in line or "#?#" in line or "#$#" in line:
+
+    if any(tag in line for tag in ["##", "#@#", "#?#", "#$#"]):
         return None, False
+
     if "$" in line:
         modifier_part = line.split("$", 1)[1].lower()
-        if any(
-            mod in modifier_part
-            for mod in [
-                "domain=",
-                "third-party",
-                "3p",
-                "badfilter",
-                "popup",
-                "denyallow",
-                "denlyallow",
-                "removeparam",
-                "uritransform",
-                "urlskip",
-                "replace",
-                "redirect",
-                "rewrite",
-                "popunder",
-                "cname",
-                "frame",
-                "from=",
-                "to=",
-                "csp",
-                "elemhide",
-                "generichide",
-                "genericblock",
-                "header",
-                "permissions",
-                "ping",
-                "inline-script",
-                "inline-font",
-                "document",
-                "doc",
-                "app=",
-                "script",
-                "image",
-                "img",
-                "stylesheet",
-                "css",
-                "xmlhttprequest",
-                "xhr",
-                "font",
-                "media",
-                "object",
-                "subdocument",
-                "websocket",
-                "webrtc",
-                "other",
-            ]
-        ):
+        mods = [
+            "domain=",
+            "third-party",
+            "3p",
+            "badfilter",
+            "popup",
+            "denyallow",
+            "denlyallow",
+            "removeparam",
+            "uritransform",
+            "urlskip",
+            "replace",
+            "redirect",
+            "rewrite",
+            "popunder",
+            "cname",
+            "frame",
+            "from=",
+            "to=",
+            "csp",
+            "elemhide",
+            "generichide",
+            "genericblock",
+            "header",
+            "permissions",
+            "ping",
+            "inline-script",
+            "inline-font",
+            "document",
+            "doc",
+            "app=",
+            "script",
+            "image",
+            "img",
+            "stylesheet",
+            "css",
+            "xmlhttprequest",
+            "xhr",
+            "font",
+            "media",
+            "object",
+            "subdocument",
+            "websocket",
+            "webrtc",
+            "other",
+        ]
+        if any(mod in modifier_part for mod in mods):
             return None, False
+
     domain = ""
     if line.startswith("||") and "^" in line:
         caret_pos = line.index("^")
@@ -187,9 +141,7 @@ def parse_adblock_rule(line):
         remainder = line[caret_pos + 1 :]
         if "$" in remainder:
             remainder = remainder.split("$")[0]
-        if remainder:
-            return None, False
-        if "/" in domain:
+        if remainder or "/" in domain:
             return None, False
     elif line.startswith("|http://") or line.startswith("|https://"):
         line = line[1:]
@@ -197,10 +149,7 @@ def parse_adblock_rule(line):
             line = line.split("://", 1)[1]
         if "/" in line:
             return None, False
-        if "^" in line:
-            domain = line.split("^")[0]
-        else:
-            domain = line
+        domain = line.split("^")[0] if "^" in line else line
         if "$" in domain:
             domain = domain.split("$")[0]
     elif line.startswith("://"):
@@ -213,16 +162,16 @@ def parse_adblock_rule(line):
             domain = domain.split("$")[0]
     else:
         return None, False
+
     domain = domain.strip(".")
-    if not domain or "." not in domain:
-        return None, False
-    if is_ip_address(domain):
+    if not domain or "." not in domain or is_ip_address(domain):
         return None, False
     if not re.match(
         r"^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*$",
         domain,
     ):
         return None, False
+
     return domain.lower(), is_whitelist
 
 
@@ -236,10 +185,8 @@ def parse_hosts_rule(line):
     )
     if match:
         domain = match.group(1).lower()
-        if (
-            domain != "localhost"
-            and domain != "localhost.localdomain"
-            and not is_ip_address(domain)
+        if domain not in ["localhost", "localhost.localdomain"] and not is_ip_address(
+            domain
         ):
             return domain
     return None
@@ -258,8 +205,7 @@ def parse_dnsmasq_rule(line):
 
 
 def parse_clash_list(content):
-    domains = set()
-    ips = set()
+    domains, ips = set(), set()
     for line in content.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
@@ -267,9 +213,7 @@ def parse_clash_list(content):
         parts = line.split(",")
         if len(parts) < 2:
             continue
-        type_ = parts[0].strip().upper()
-        value = parts[1].strip()
-
+        type_, value = parts[0].strip().upper(), parts[1].strip()
         if type_ in ["DOMAIN", "DOMAIN-SUFFIX"]:
             domains.add(value)
         elif type_ in ["IP-CIDR", "IP-CIDR6"]:
@@ -281,59 +225,14 @@ def parse_clash_list(content):
     return domains, ips
 
 
-def process_reject_upstream():
-    blacklist_domains = set()
-    blacklist_full = set()
-    print("Processing Reject Sources...")
-    for source in REJECT_SOURCES:
-        content = download_file(source["url"])
-        if not content:
-            print(f"  [X] Failed to download: {source['url']}")
-            continue
-        s_black = set()
-        s_full = set()
-        s_white = set()
-        line_count = 0
-        for line in content.splitlines():
-            line_count += 1
-            if source["type"] == "adblock":
-                domain, is_white = parse_adblock_rule(line)
-                if domain:
-                    if is_white:
-                        s_white.add(domain)
-                    else:
-                        s_black.add(domain)
-            elif source["type"] == "hosts":
-                domain = parse_hosts_rule(line)
-                if domain:
-                    s_full.add(domain)
-
-        s_black = remove_with_subdomains(s_black, s_white)
-        s_full = remove_with_subdomains(s_full, s_white)
-
-        print(f"  [OK] {source['url']}")
-        print(
-            f"       Rules Parsed: {line_count}, Block Domains: {len(s_black)}, Hosts: {len(s_full)}, Whitelist: {len(s_white)}"
-        )
-
-        blacklist_domains.update(s_black)
-        blacklist_full.update(s_full)
-    return blacklist_domains, [f"full:{d}" for d in blacklist_full]
-
-
 def extract_geocn_from_geosite(base_dir):
     if not os.path.exists(base_dir):
         return set(), []
-    geocn_domains = set()
-    geocn_specials = []
+    domains, specials = set(), []
     for filepath in glob.glob(os.path.join(base_dir, "*")):
         filename = os.path.basename(filepath)
-        if (
-            filename == "cn"
-            or filename == "geolocation-cn"
-            or "category" in filename
-            or "google" in filename
-            or "apple" in filename
+        if filename in ["cn", "geolocation-cn"] or any(
+            x in filename for x in ["category", "google", "apple"]
         ):
             continue
         with open(filepath, "r", encoding="utf-8") as f:
@@ -342,19 +241,18 @@ def extract_geocn_from_geosite(base_dir):
                 if line.endswith("@cn"):
                     rule_body = line.rsplit("@cn", 1)[0].strip()
                     if rule_body.startswith("full:"):
-                        geocn_specials.append(rule_body)
+                        specials.append(rule_body)
                     elif rule_body.startswith("domain:"):
                         domain = rule_body.replace("domain:", "")
                         if not domain.endswith(".cn"):
-                            geocn_domains.add(domain)
-    return geocn_domains, geocn_specials
+                            domains.add(domain)
+    return domains, specials
 
 
 def extract_tagged_domains(base_dir, tag):
     if not os.path.exists(base_dir):
         return set(), []
-    tagged_domains = set()
-    tagged_specials = []
+    domains, specials = set(), []
     tag_suffix = f"@{tag}"
     for filepath in glob.glob(os.path.join(base_dir, "*")):
         if not os.path.isfile(filepath):
@@ -365,18 +263,17 @@ def extract_tagged_domains(base_dir, tag):
                 if line.endswith(tag_suffix):
                     rule_body = line.rsplit(tag_suffix, 1)[0].strip()
                     if rule_body.startswith("full:"):
-                        tagged_specials.append(rule_body)
+                        specials.append(rule_body)
                     elif rule_body.startswith("domain:"):
-                        tagged_domains.add(rule_body[7:])
+                        domains.add(rule_body[7:])
                     elif ":" not in rule_body:
-                        tagged_domains.add(rule_body)
-    return tagged_domains, tagged_specials
+                        domains.add(rule_body)
+    return domains, specials
 
 
 def read_upstream_list(filename, base_dir):
     path = os.path.join(base_dir, filename)
-    domains = set()
-    specials = []
+    domains, specials = set(), []
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
@@ -398,23 +295,38 @@ def read_upstream_list(filename, base_dir):
 
 
 def read_local_list(path):
-    domains = set()
-    specials = []
+    domains, specials = set(), []
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                if line.startswith("full:"):
-                    content = line[5:]
-                    if not is_ip_address(content):
-                        specials.append(line)
-                elif line.startswith("domain:"):
-                    domain = line[7:]
-                    if not is_ip_address(domain):
-                        domains.add(domain)
+                if line.startswith("full:") and not is_ip_address(line[5:]):
+                    specials.append(line)
+                elif line.startswith("domain:") and not is_ip_address(line[7:]):
+                    domains.add(line[7:])
     return domains, specials
+
+
+def apply_removal_and_clean_specials(
+    upstream_domains, upstream_specials, remove_domains, remove_specials
+):
+    upstream_domains = remove_with_subdomains(upstream_domains, remove_domains)
+    upstream_specials_set = set(upstream_specials) - set(remove_specials)
+    final_specials = []
+
+    for s in upstream_specials_set:
+        if s.startswith("full:"):
+            domain = s[5:]
+            if not any(
+                domain == rm or domain.endswith("." + rm) for rm in remove_domains
+            ):
+                final_specials.append(s)
+        else:
+            final_specials.append(s)
+
+    return upstream_domains, final_specials
 
 
 def deduplicate_and_merge(name, domains, specials):
@@ -422,9 +334,12 @@ def deduplicate_and_merge(name, domains, specials):
     temp_redundant = f"{name}_redundant.txt"
     temp_clean = f"{name}_clean.txt"
     temp_deleted = f"{name}_deleted_sorted.txt"
+
     with open(temp_redundant, "w", encoding="utf-8") as f:
         f.write("\n".join(sorted(list(domains))))
+
     open(temp_unsorted, "w", encoding="utf-8").close()
+
     subprocess.run(
         [
             sys.executable,
@@ -434,13 +349,17 @@ def deduplicate_and_merge(name, domains, specials):
         ],
         check=True,
     )
+
     redundant = []
     if os.path.exists(temp_unsorted):
         with open(temp_unsorted, "r", encoding="utf-8") as f:
             redundant = [line.strip() for line in f if line.strip()]
+
     redundant.sort()
+
     with open(temp_deleted, "w", encoding="utf-8") as f:
         f.write("\n".join(redundant))
+
     subprocess.run(
         [
             sys.executable,
@@ -454,34 +373,55 @@ def deduplicate_and_merge(name, domains, specials):
         ],
         check=True,
     )
+
     final_rules = []
     with open(temp_clean, "r", encoding="utf-8") as f:
         for line in f:
             if line.strip():
                 final_rules.append(f"domain:{line.strip()}")
-    unique_specials = sorted(list(set(specials)))
-    final_rules.extend(unique_specials)
+
+    final_rules.extend(sorted(list(set(specials))))
     final_rules.sort()
+
     for f in [temp_unsorted, temp_redundant, temp_clean, temp_deleted]:
         if os.path.exists(f):
             os.remove(f)
+
     return final_rules
+
+
+def simplify_ip_rules(ip_set):
+    ipv4_nets, ipv6_nets = [], []
+    for ip_str in ip_set:
+        try:
+            net = ipaddress.ip_network(ip_str, strict=False)
+            if net.version == 4:
+                ipv4_nets.append(net)
+            else:
+                ipv6_nets.append(net)
+        except ValueError:
+            continue
+
+    return [str(n) for n in ipaddress.collapse_addresses(ipv4_nets)] + [
+        str(n) for n in ipaddress.collapse_addresses(ipv6_nets)
+    ]
 
 
 def generate_files(name, rules, output_meta, output_sing):
     os.makedirs(output_meta, exist_ok=True)
     os.makedirs(output_sing, exist_ok=True)
+
     with open(os.path.join(output_meta, f"{name}.list"), "w", encoding="utf-8") as f:
-        lines = []
-        for r in rules:
-            if r.startswith("full:"):
-                lines.append(r[5:])
-            elif r.startswith("domain:"):
-                lines.append("+." + r[7:])
-            else:
-                lines.append(r)
-        lines.sort()
-        f.write("\n".join(lines))
+        lines = [
+            (
+                r[5:]
+                if r.startswith("full:")
+                else "+." + r[7:] if r.startswith("domain:") else r
+            )
+            for r in rules
+        ]
+        f.write("\n".join(sorted(lines)))
+
     yaml_path = os.path.join(output_meta, f"{name}.yaml")
     with open(yaml_path, "w", encoding="utf-8") as f:
         f.write("payload:\n")
@@ -492,17 +432,21 @@ def generate_files(name, rules, output_meta, output_sing):
                 f.write(f"  - '{rule[5:]}'\n")
             else:
                 f.write(f"  - '+.{rule}'\n")
+
     srs_json = {"version": 1, "rules": [{"domain": [], "domain_suffix": []}]}
     for rule in rules:
         if rule.startswith("domain:"):
             srs_json["rules"][0]["domain_suffix"].append(rule[7:])
         elif rule.startswith("full:"):
             srs_json["rules"][0]["domain"].append(rule[5:])
+
     srs_json["rules"][0]["domain_suffix"].sort()
     srs_json["rules"][0]["domain"].sort()
+
     json_path = os.path.join(output_sing, f"{name}.json")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(srs_json, f, indent=2)
+
     return json_path, yaml_path
 
 
@@ -531,53 +475,24 @@ def compile_rules(name, json_path, yaml_path, sing_dir, meta_dir):
     )
 
 
-def process_pollution_upstream():
-    pollution_ips = set()
-    content = download_file(URLS["gfw_ip"])
-    if content:
-        for line in content.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            try:
-                ipaddress.ip_network(line, strict=False)
-                pollution_ips.add(line)
-            except ValueError:
-                pass
-    return pollution_ips
-
-
-def simplify_ip_rules(ip_set):
-    ipv4_nets = []
-    ipv6_nets = []
-    for ip_str in ip_set:
-        try:
-            net = ipaddress.ip_network(ip_str, strict=False)
-            if net.version == 4:
-                ipv4_nets.append(net)
-            else:
-                ipv6_nets.append(net)
-        except ValueError:
-            continue
-    collapsed_v4 = ipaddress.collapse_addresses(ipv4_nets)
-    collapsed_v6 = ipaddress.collapse_addresses(ipv6_nets)
-    return [str(n) for n in collapsed_v4] + [str(n) for n in collapsed_v6]
-
-
 def generate_ip_files(name, rules, output_meta, output_sing):
     os.makedirs(output_meta, exist_ok=True)
     os.makedirs(output_sing, exist_ok=True)
+
     with open(os.path.join(output_meta, f"{name}.list"), "w", encoding="utf-8") as f:
         f.write("\n".join(rules))
+
     yaml_path = os.path.join(output_meta, f"{name}.yaml")
     with open(yaml_path, "w", encoding="utf-8") as f:
         f.write("payload:\n")
         for rule in rules:
             f.write(f"  - '{rule}'\n")
+
     srs_json = {"version": 2, "rules": [{"ip_cidr": rules}]}
     json_path = os.path.join(output_sing, f"{name}.json")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(srs_json, f, indent=2)
+
     return json_path, yaml_path
 
 
@@ -606,91 +521,84 @@ def compile_ip_rules(name, json_path, yaml_path, sing_dir, meta_dir):
     )
 
 
-def apply_removal_and_clean_specials(
-    upstream_domains, upstream_specials, remove_domains, remove_specials
-):
-    upstream_domains = remove_with_subdomains(upstream_domains, remove_domains)
+def process_domain_rules(name, upstream_domains, upstream_specials, meta_dir, sing_dir):
+    local_domains, local_specials = read_local_list(f"rules/my-{name}.list")
+    remove_domains, remove_specials = read_local_list(f"rules/my-{name}-remove.list")
 
-    upstream_specials_set = set(upstream_specials) - set(remove_specials)
-    final_specials = []
-    for s in upstream_specials_set:
-        if s.startswith("full:"):
-            domain = s[5:]
-            if not any(
-                domain == rm or domain.endswith("." + rm) for rm in remove_domains
-            ):
-                final_specials.append(s)
-        else:
-            final_specials.append(s)
-    return upstream_domains, final_specials
-
-
-def main():
-    print("Downloading geosite.dat...")
-    download_file(URLS["geosite"], "geosite.dat")
-    unpack_geosite("geosite.dat", "temp_geosite")
-
-    print("Downloading Hijacking list...")
-    hijacking_content = download_file(URLS["hijacking"])
-    hijacking_domains = set()
-    hijacking_ips = set()
-    if hijacking_content:
-        hijacking_domains, hijacking_ips = parse_clash_list(hijacking_content)
-        print(
-            f"  [OK] Hijacking List Parsed: Domains: {len(hijacking_domains)}, IPs: {len(hijacking_ips)}"
-        )
-    else:
-        print("  [X] Failed to download Hijacking list")
-
-    print("Processing geolocation-cn...")
-    geocn_upstream_domains, geocn_upstream_specials = extract_geocn_from_geosite(
-        "temp_geosite"
+    upstream_domains, upstream_specials = apply_removal_and_clean_specials(
+        upstream_domains, upstream_specials, remove_domains, remove_specials
     )
 
-    # google_content = download_file(URLS["google_china"])
-    # if google_content:
-    #     for line in google_content.splitlines():
-    #         d = parse_dnsmasq_rule(line)
-    #         if d:
-    #             geocn_upstream_domains.add(d)
-
-    apple_content = download_file(URLS["apple_china"])
-    if apple_content:
-        for line in apple_content.splitlines():
-            d = parse_dnsmasq_rule(line)
-            if d:
-                geocn_upstream_domains.add(d)
-
-    geocn_local_domains, geocn_local_specials = read_local_list(
-        "rules/my-geolocation-cn.list"
-    )
-    geocn_remove_domains, geocn_remove_specials = read_local_list(
-        "rules/my-geolocation-cn-remove.list"
+    final_raw = deduplicate_and_merge(
+        name,
+        upstream_domains.union(local_domains),
+        upstream_specials + local_specials,
     )
 
-    geocn_upstream_domains, geocn_upstream_specials = apply_removal_and_clean_specials(
-        geocn_upstream_domains,
-        geocn_upstream_specials,
-        geocn_remove_domains,
-        geocn_remove_specials,
-    )
+    final_d = {rule[7:] for rule in final_raw if rule.startswith("domain:")}
+    final_f = {rule[5:] for rule in final_raw if rule.startswith("full:")}
+    final_f = clean_full_from_domains(final_f, final_d)
 
-    geocn_final_raw = deduplicate_and_merge(
-        "geolocation-cn",
-        geocn_upstream_domains.union(geocn_local_domains),
-        geocn_upstream_specials + geocn_local_specials,
-    )
-    geocn_final_d = {rule[7:] for rule in geocn_final_raw if rule.startswith("domain:")}
-    geocn_final_f = {rule[5:] for rule in geocn_final_raw if rule.startswith("full:")}
-    geocn_final_f = clean_full_from_domains(geocn_final_f, geocn_final_d)
-
-    geocn_output = [f"domain:{d}" for d in sorted(geocn_final_d)] + [
-        f"full:{f}" for f in sorted(geocn_final_f)
+    output = [f"domain:{d}" for d in sorted(final_d)] + [
+        f"full:{f}" for f in sorted(final_f)
     ]
 
-    print("Processing cn...")
-    cn_upstream_domains = {"cn"}
-    cn_punycode_tlds = [
+    json_path, yaml_path = generate_files(name, output, meta_dir, sing_dir)
+    compile_rules(name, json_path, yaml_path, sing_dir, meta_dir)
+
+
+def process_ip_rules(output_name, local_file_suffix, upstream_ips, meta_dir, sing_dir):
+    local_ips, remove_ips = set(), set()
+
+    local_file = f"rules/my-{local_file_suffix}.list"
+    if os.path.exists(local_file):
+        with open(local_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip() and not line.strip().startswith("#"):
+                    local_ips.add(line.strip())
+
+    remove_file = f"rules/my-{local_file_suffix}-remove.list"
+    if os.path.exists(remove_file):
+        with open(remove_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip() and not line.strip().startswith("#"):
+                    remove_ips.add(line.strip())
+
+    final_ips = upstream_ips.union(local_ips) - remove_ips
+    output = simplify_ip_rules(final_ips)
+
+    json_path, yaml_path = generate_ip_files(output_name, output, meta_dir, sing_dir)
+    compile_ip_rules(output_name, json_path, yaml_path, sing_dir, meta_dir)
+
+
+def build_geolocation_cn(geosite_dir, meta_dir, sing_dir):
+    print("Building geolocation-cn...")
+
+    UPSTREAM_APPLE = "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/apple.china.conf"
+    UPSTREAM_GOOGLE = "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/google.china.conf"
+
+    domains, specials = extract_geocn_from_geosite(geosite_dir)
+    content = download_file(UPSTREAM_APPLE)
+    if content:
+        for line in content.splitlines():
+            d = parse_dnsmasq_rule(line)
+            if d:
+                domains.add(d)
+    content = download_file(UPSTREAM_GOOGLE)
+    if content:
+        for line in content.splitlines():
+            d = parse_dnsmasq_rule(line)
+            if d:
+                domains.add(d)
+
+    process_domain_rules("geolocation-cn", domains, specials, meta_dir, sing_dir)
+
+
+def build_cn(meta_dir, sing_dir):
+    print("Building cn...")
+
+    UPSTREAM_DNSMASQ = "https://raw.githubusercontent.com/felixonmars/dnsmasq-china-list/master/accelerated-domains.china.conf"
+    UPSTREAM_PUNYCODE = [
         "xn--fiqs8s",  # .中国
         "xn--fiqz9s",  # .中國
         # "xn--j6w193g",  # .香港
@@ -756,232 +664,134 @@ def main():
         # "xn--0zwm56d",  # .测试
         # "xn--g6w251d",  # .測試
     ]
-    cn_upstream_domains.update(cn_punycode_tlds)
-    cn_upstream_specials = []
 
-    acc_content = download_file(URLS["dnsmasq_china"])
-    if acc_content:
-        for line in acc_content.splitlines():
+    domains = {"cn"}
+    domains.update(UPSTREAM_PUNYCODE)
+    specials = []
+
+    content = download_file(UPSTREAM_DNSMASQ)
+    if content:
+        for line in content.splitlines():
             d = parse_dnsmasq_rule(line)
             if d:
-                cn_upstream_domains.add(d)
+                domains.add(d)
 
-    cn_local_domains, cn_local_specials = read_local_list("rules/my-cn.list")
-    cn_remove_domains, cn_remove_specials = read_local_list("rules/my-cn-remove.list")
+    process_domain_rules("cn", domains, specials, meta_dir, sing_dir)
 
-    cn_upstream_domains, cn_upstream_specials = apply_removal_and_clean_specials(
-        cn_upstream_domains, cn_upstream_specials, cn_remove_domains, cn_remove_specials
-    )
 
-    cn_final_raw = deduplicate_and_merge(
-        "cn",
-        cn_upstream_domains.union(cn_local_domains),
-        cn_upstream_specials + cn_local_specials,
-    )
-    cn_final_d = {rule[7:] for rule in cn_final_raw if rule.startswith("domain:")}
-    cn_final_f = {rule[5:] for rule in cn_final_raw if rule.startswith("full:")}
-    cn_final_f = clean_full_from_domains(cn_final_f, cn_final_d)
+def build_geolocation_not_cn(geosite_dir, meta_dir, sing_dir):
+    print("Building geolocation-!cn...")
 
-    cn_output = [f"domain:{d}" for d in sorted(cn_final_d)] + [
-        f"full:{f}" for f in sorted(cn_final_f)
+    domains, specials = read_upstream_list("geolocation-!cn", geosite_dir)
+    extra_domains, extra_specials = extract_tagged_domains(geosite_dir, "!cn")
+    domains.update(extra_domains)
+    specials.extend(extra_specials)
+
+    process_domain_rules("geolocation-!cn", domains, specials, meta_dir, sing_dir)
+
+
+def build_private(geosite_dir, meta_dir, sing_dir):
+    print("Building private...")
+
+    domains, specials = read_upstream_list("private", geosite_dir)
+    process_domain_rules("private", domains, specials, meta_dir, sing_dir)
+
+
+def build_reject_and_ip(meta_dir, sing_dir, ip_meta_dir, ip_sing_dir):
+    print("Building reject and reject-ip...")
+
+    UPSTREAM_ADBLOCK = [
+        "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt",
+        "https://ublockorigin.github.io/uAssetsCDN/filters/filters.min.txt",
+        "https://filters.adtidy.org/extension/ublock/filters/224_optimized.txt",
+        "https://easylist-downloads.adblockplus.org/easylistchina+easylist.txt",
+        "https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/AWAvenue-Ads-Rule.txt",
+        "https://ublockorigin.github.io/uAssetsCDN/filters//badware.min.txt",
     ]
-
-    print("Processing geolocation-!cn...")
-    notcn_upstream_domains, notcn_upstream_specials = read_upstream_list(
-        "geolocation-!cn", "temp_geosite"
-    )
-    extra_notcn_domains, extra_notcn_specials = extract_tagged_domains(
-        "temp_geosite", "!cn"
-    )
-    notcn_upstream_domains.update(extra_notcn_domains)
-    notcn_upstream_specials.extend(extra_notcn_specials)
-
-    notcn_local_domains, notcn_local_specials = read_local_list(
-        "rules/my-geolocation-!cn.list"
-    )
-    notcn_remove_domains, notcn_remove_specials = read_local_list(
-        "rules/my-geolocation-!cn-remove.list"
-    )
-
-    notcn_upstream_domains, notcn_upstream_specials = apply_removal_and_clean_specials(
-        notcn_upstream_domains,
-        notcn_upstream_specials,
-        notcn_remove_domains,
-        notcn_remove_specials,
-    )
-
-    notcn_final_raw = deduplicate_and_merge(
-        "geolocation-!cn",
-        notcn_upstream_domains.union(notcn_local_domains),
-        notcn_upstream_specials + notcn_local_specials,
-    )
-    notcn_final_d = {rule[7:] for rule in notcn_final_raw if rule.startswith("domain:")}
-    notcn_final_f = {rule[5:] for rule in notcn_final_raw if rule.startswith("full:")}
-    notcn_final_f = clean_full_from_domains(notcn_final_f, notcn_final_d)
-
-    notcn_output = [f"domain:{d}" for d in sorted(notcn_final_d)] + [
-        f"full:{f}" for f in sorted(notcn_final_f)
+    UPSTREAM_HOSTS = [
+        "https://malware-filter.gitlab.io/malware-filter/urlhaus-filter-hosts-online.txt",
+        "https://someonewhocares.org/hosts/hosts",
+        "https://malware-filter.gitlab.io/malware-filter/phishing-filter-hosts.txt",
     ]
+    UPSTREAM_HIJACKING = "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Hijacking/Hijacking.list"
 
-    print("Processing private...")
-    private_upstream_domains, private_upstream_specials = read_upstream_list(
-        "private", "temp_geosite"
-    )
-    private_local_domains, private_local_specials = read_local_list(
-        "rules/my-private.list"
-    )
-    private_remove_domains, private_remove_specials = read_local_list(
-        "rules/my-private-remove.list"
-    )
+    reject_domains, reject_specials = set(), []
 
-    private_upstream_domains, private_upstream_specials = (
-        apply_removal_and_clean_specials(
-            private_upstream_domains,
-            private_upstream_specials,
-            private_remove_domains,
-            private_remove_specials,
-        )
-    )
+    for url in UPSTREAM_ADBLOCK:
+        content = download_file(url)
+        if not content:
+            continue
+        s_black, s_white = set(), set()
+        for line in content.splitlines():
+            domain, is_white = parse_adblock_rule(line)
+            if domain:
+                if is_white:
+                    s_white.add(domain)
+                else:
+                    s_black.add(domain)
+        s_black = remove_with_subdomains(s_black, s_white)
+        reject_domains.update(s_black)
 
-    private_final_raw = deduplicate_and_merge(
-        "private",
-        private_upstream_domains.union(private_local_domains),
-        private_upstream_specials + private_local_specials,
-    )
-    private_final_d = {
-        rule[7:] for rule in private_final_raw if rule.startswith("domain:")
-    }
-    private_final_f = {
-        rule[5:] for rule in private_final_raw if rule.startswith("full:")
-    }
-    private_final_f = clean_full_from_domains(private_final_f, private_final_d)
+    for url in UPSTREAM_HOSTS:
+        content = download_file(url)
+        if not content:
+            continue
+        s_full = set()
+        for line in content.splitlines():
+            domain = parse_hosts_rule(line)
+            if domain:
+                s_full.add(domain)
+        reject_specials.extend([f"full:{d}" for d in s_full])
 
-    private_output = [f"domain:{d}" for d in sorted(private_final_d)] + [
-        f"full:{f}" for f in sorted(private_final_f)
-    ]
+    hijacking_domains, hijacking_ips = set(), set()
+    hijacking_content = download_file(UPSTREAM_HIJACKING)
+    if hijacking_content:
+        hijacking_domains, hijacking_ips = parse_clash_list(hijacking_content)
+    reject_domains.update(hijacking_domains)
 
-    print("Processing reject...")
-    reject_upstream_domains, reject_upstream_specials = process_reject_upstream()
+    process_domain_rules("reject", reject_domains, reject_specials, meta_dir, sing_dir)
+    process_ip_rules("reject", "reject-ip", hijacking_ips, ip_meta_dir, ip_sing_dir)
 
-    reject_upstream_domains.update(hijacking_domains)
 
-    reject_local_domains, reject_local_specials = read_local_list(
-        "rules/my-reject.list"
-    )
-    reject_remove_domains, reject_remove_specials = read_local_list(
-        "rules/my-reject-remove.list"
+def build_pollution_ip(meta_dir, sing_dir):
+    print("Building pollution-ip...")
+
+    UPSTREAM_GFW_IP = (
+        "https://raw.githubusercontent.com/pmkol/easymosdns/main/rules/gfw_ip_list.txt"
     )
 
-    reject_upstream_domains, reject_upstream_specials = (
-        apply_removal_and_clean_specials(
-            reject_upstream_domains,
-            reject_upstream_specials,
-            reject_remove_domains,
-            reject_remove_specials,
-        )
-    )
+    upstream_ips = set()
+    content = download_file(UPSTREAM_GFW_IP)
+    if content:
+        for line in content.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            try:
+                ipaddress.ip_network(line, strict=False)
+                upstream_ips.add(line)
+            except ValueError:
+                pass
 
-    reject_final_raw = deduplicate_and_merge(
-        "reject",
-        reject_upstream_domains.union(reject_local_domains),
-        reject_upstream_specials + reject_local_specials,
-    )
-    reject_final_d = {
-        rule[7:] for rule in reject_final_raw if rule.startswith("domain:")
-    }
-    reject_final_f = {rule[5:] for rule in reject_final_raw if rule.startswith("full:")}
-    reject_final_f = clean_full_from_domains(reject_final_f, reject_final_d)
+    process_ip_rules("pollution", "pollution-ip", upstream_ips, meta_dir, sing_dir)
 
-    reject_output = [f"domain:{d}" for d in sorted(reject_final_d)] + [
-        f"full:{f}" for f in sorted(reject_final_f)
-    ]
 
-    meta_dir = "dist/meta/site"
-    sing_dir = "dist/sing/site"
+def main():
+    GEOSITE_URL = "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat"
+    print("Downloading and unpacking geosite.dat...")
 
-    geocn_json, geocn_yaml = generate_files(
-        "geolocation-cn", geocn_output, meta_dir, sing_dir
-    )
-    compile_rules("geolocation-cn", geocn_json, geocn_yaml, sing_dir, meta_dir)
+    download_file(GEOSITE_URL, "geosite.dat")
+    unpack_geosite("geosite.dat", "temp_geosite")
 
-    cn_json, cn_yaml = generate_files("cn", cn_output, meta_dir, sing_dir)
-    compile_rules("cn", cn_json, cn_yaml, sing_dir, meta_dir)
+    DOMAIN_META_DIR, DOMAIN_SING_DIR = "dist/meta/site", "dist/sing/site"
+    IP_META_DIR, IP_SING_DIR = "dist/meta/ip", "dist/sing/ip"
 
-    notcn_json, notcn_yaml = generate_files(
-        "geolocation-!cn", notcn_output, meta_dir, sing_dir
-    )
-    compile_rules("geolocation-!cn", notcn_json, notcn_yaml, sing_dir, meta_dir)
-
-    private_json, private_yaml = generate_files(
-        "private", private_output, meta_dir, sing_dir
-    )
-    compile_rules("private", private_json, private_yaml, sing_dir, meta_dir)
-
-    reject_json, reject_yaml = generate_files(
-        "reject", reject_output, meta_dir, sing_dir
-    )
-    compile_rules("reject", reject_json, reject_yaml, sing_dir, meta_dir)
-
-    print("Processing pollution IP...")
-    pollution_upstream_ips = process_pollution_upstream()
-    pollution_local_ips = set()
-    if os.path.exists("rules/my-pollution-ip.list"):
-        with open("rules/my-pollution-ip.list", "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    pollution_local_ips.add(line)
-
-    pollution_remove_ips = set()
-    if os.path.exists("rules/my-pollution-ip-remove.list"):
-        with open("rules/my-pollution-ip-remove.list", "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    pollution_remove_ips.add(line)
-
-    pollution_final_ips = (
-        pollution_upstream_ips.union(pollution_local_ips) - pollution_remove_ips
-    )
-    pollution_output = simplify_ip_rules(pollution_final_ips)
-
-    print("Processing reject IP...")
-
-    reject_ip_upstream = hijacking_ips
-
-    reject_ip_local = set()
-    if os.path.exists("rules/my-reject-ip.list"):
-        with open("rules/my-reject-ip.list", "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    reject_ip_local.add(line)
-
-    reject_ip_remove = set()
-    if os.path.exists("rules/my-reject-ip-remove.list"):
-        with open("rules/my-reject-ip-remove.list", "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    reject_ip_remove.add(line)
-
-    reject_ip_final = reject_ip_upstream.union(reject_ip_local) - reject_ip_remove
-    reject_ip_output = simplify_ip_rules(reject_ip_final)
-
-    ip_meta_dir = "dist/meta/ip"
-    ip_sing_dir = "dist/sing/ip"
-
-    pollution_json, pollution_yaml = generate_ip_files(
-        "pollution", pollution_output, ip_meta_dir, ip_sing_dir
-    )
-    compile_ip_rules(
-        "pollution", pollution_json, pollution_yaml, ip_sing_dir, ip_meta_dir
-    )
-
-    reject_ip_json, reject_ip_yaml = generate_ip_files(
-        "reject", reject_ip_output, ip_meta_dir, ip_sing_dir
-    )
-    compile_ip_rules("reject", reject_ip_json, reject_ip_yaml, ip_sing_dir, ip_meta_dir)
+    build_geolocation_cn("temp_geosite", DOMAIN_META_DIR, DOMAIN_SING_DIR)
+    build_cn(DOMAIN_META_DIR, DOMAIN_SING_DIR)
+    build_geolocation_not_cn("temp_geosite", DOMAIN_META_DIR, DOMAIN_SING_DIR)
+    build_private("temp_geosite", DOMAIN_META_DIR, DOMAIN_SING_DIR)
+    build_reject_and_ip(DOMAIN_META_DIR, DOMAIN_SING_DIR, IP_META_DIR, IP_SING_DIR)
+    build_pollution_ip(IP_META_DIR, IP_SING_DIR)
 
     if os.path.exists("temp_geosite"):
         shutil.rmtree("temp_geosite")
