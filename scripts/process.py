@@ -712,6 +712,7 @@ def build_reject_and_ip(meta_dir, sing_dir, ip_meta_dir, ip_sing_dir):
         "https://malware-filter.gitlab.io/malware-filter/urlhaus-filter-hosts-online.txt",
         "https://someonewhocares.org/hosts/hosts",
         "https://malware-filter.gitlab.io/malware-filter/phishing-filter-hosts.txt",
+        "https://a.dove.isdumb.one/list.txt",
     ]
     UPSTREAM_HIJACKING = "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/Hijacking/Hijacking.list"
 
