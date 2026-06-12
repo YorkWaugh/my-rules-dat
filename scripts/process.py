@@ -232,7 +232,7 @@ def extract_geocn_from_geosite(base_dir):
     for filepath in glob.glob(os.path.join(base_dir, "*")):
         filename = os.path.basename(filepath)
         if filename in ["cn", "geolocation-cn"] or any(
-            x in filename for x in ["category", "google", "apple"]
+            x in filename for x in ["category", "google", "alphabet", "apple"]
         ):
             continue
         with open(filepath, "r", encoding="utf-8") as f:
