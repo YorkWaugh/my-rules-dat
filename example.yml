@@ -1,0 +1,246 @@
+mixed-port: 10801
+
+allow-lan: true
+bind-address: "*"
+
+find-process-mode: strict
+
+mode: rule
+
+log-level: info
+
+ipv6: true
+
+external-controller: 0.0.0.0:9090
+external-ui: ./ui
+external-ui-name: metacubexd
+external-ui-url: https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip
+secret: "your-secret"
+
+hosts:
+  time.android.com: [162.159.200.1, 2606:4700:f1::1]
+
+profile:
+  store-selected: true
+  store-fake-ip: true
+
+tun:
+  enable: true
+  device: Mihomo
+  stack: mixed
+  dns-hijack:
+    - any:53
+  mtu: 1500
+  auto-detect-interface: true
+  auto-route: true
+
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+
+dns:
+  enable: true
+  ipv6: true
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+    - 1.1.1.1
+    - 8.8.8.8
+    - 2400:3200::1
+    - 2402:4e00::0
+    - 2606:4700:4700::1111
+    - 2001:4860:4860::8888
+    - system
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/15
+  fake-ip-range6: 2001:2::/48
+  use-hosts: true
+  use-system-hosts: true
+  respect-rules: true
+  fake-ip-filter:
+    - RULE-SET:My-Private
+    - RULE-SET:fakeip-filter
+  nameserver:
+    - https://dns.cloudflare.com/dns-query
+    - https://dns.google/dns-query
+  nameserver-policy:
+    "RULE-SET:My-Private": system
+    "RULE-SET:My-CN,My-Geolocation-CN":
+      - system
+      - https://dns.alidns.com/dns-query
+      - https://dns.pub/dns-query
+  proxy-server-nameserver:
+    - system
+    - https://dns.alidns.com/dns-query
+    - https://dns.pub/dns-query
+    - https://dns.cloudflare.com/dns-query
+    - https://dns.google/dns-query
+
+proxy-providers:
+  sgfg:
+    type: http
+    url: https://gist.githubusercontent.com/YorkWaugh/cb374c7429af59f6f5c15e5f5af86d1f/raw/sgfg.yaml
+    path: ./proxy_providers/sgfg.yaml
+    interval: 3600
+    proxy: PROXY
+    header:
+      User-Agent:
+        - "clash.meta"
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 300
+      timeout: 5000
+      lazy: true
+      expected-status: 204
+  warp:
+    type: http
+    url: https://gist.githubusercontent.com/YorkWaugh/593a9f88ee366fce51f4dec0f2624dd8/raw/warp.yaml
+    path: ./proxy_providers/warp.yaml
+    interval: 3600
+    proxy: PROXY
+    header:
+      User-Agent:
+        - "clash.meta"
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 300
+      timeout: 5000
+      lazy: true
+      expected-status: 204
+
+proxy-groups:
+  - name: PROXY
+    type: select
+    use:
+      - sgfg
+      - warp
+    proxies:
+      - AUTO
+      - FALLBACK
+      - BALANCE
+      - DIRECT
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+  - name: AUTO
+    type: url-test
+    use:
+      - sgfg
+      - warp
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+  - name: FALLBACK
+    type: fallback
+    use:
+      - sgfg
+      - warp
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+  - name: BALANCE
+    type: load-balance
+    use:
+      - sgfg
+      - warp
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+
+rule-providers:
+  My-Reject:
+    behavior: domain
+    format: mrs
+    interval: 43200
+    path: ./ruleset/My-Reject.mrs
+    type: http
+    url: https://raw.githubusercontent.com/YorkWaugh/my-rules-dat/meta/site/reject.mrs
+  My-Geolocation-CN:
+    behavior: domain
+    format: mrs
+    interval: 43200
+    path: ./ruleset/My-Geolocation-CN.mrs
+    type: http
+    url: https://raw.githubusercontent.com/YorkWaugh/my-rules-dat/meta/site/geolocation-cn.mrs
+  My-CN:
+    behavior: domain
+    format: mrs
+    interval: 43200
+    path: ./ruleset/My-CN.mrs
+    type: http
+    url: https://raw.githubusercontent.com/YorkWaugh/my-rules-dat/meta/site/cn.mrs
+  My-Geolocation-!CN:
+    behavior: domain
+    format: mrs
+    interval: 43200
+    path: ./ruleset/My-Geolocation-!CN.mrs
+    type: http
+    url: https://raw.githubusercontent.com/YorkWaugh/my-rules-dat/meta/site/geolocation-!cn.mrs
+  My-Private:
+    behavior: domain
+    format: mrs
+    interval: 43200
+    path: ./ruleset/My-Private.mrs
+    type: http
+    url: https://raw.githubusercontent.com/YorkWaugh/my-rules-dat/meta/site/private.mrs
+  My-Pollution-IP:
+    behavior: ipcidr
+    format: mrs
+    interval: 43200
+    path: ./ruleset/My-Pollution-IP.mrs
+    type: http
+    url: https://raw.githubusercontent.com/YorkWaugh/my-rules-dat/meta/ip/pollution.mrs
+  My-Reject-IP:
+    behavior: ipcidr
+    format: mrs
+    interval: 43200
+    path: ./ruleset/My-Reject-IP.mrs
+    type: http
+    url: https://raw.githubusercontent.com/YorkWaugh/my-rules-dat/meta/ip/reject.mrs
+  Skk-Reject-IP:
+    behavior: classical
+    format: text
+    interval: 43200
+    path: ./ruleset/Skk-Reject-IP.txt
+    type: http
+    url: https://ruleset.skk.moe/Clash/ip/reject.txt
+  fakeip-filter:
+    behavior: domain
+    format: text
+    interval: 43200
+    path: ./ruleset/clash_fake_ip_filter.txt
+    type: http
+    url: https://ruleset.skk.moe/Clash/domainset/clash_fake_ip_filter.txt
+  Meta-AD-IP:
+    behavior: ipcidr
+    format: mrs
+    interval: 43200
+    path: ./ruleset/Meta-AD-IP.mrs
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/ad.mrs
+  Meta-CN-IP:
+    behavior: ipcidr
+    format: mrs
+    interval: 43200
+    path: ./ruleset/ Meta-CN-IP.mrs
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.mrs
+  Meta-Private-IP:
+    behavior: ipcidr
+    format: mrs
+    interval: 43200
+    path: ./ruleset/Meta-Private-IP.mrs
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/private.mrs
+
+rules:
+  - RULE-SET,My-Reject,REJECT
+  - RULE-SET,My-Private,DIRECT
+  - RULE-SET,My-Geolocation-CN,DIRECT
+  - RULE-SET,My-Geolocation-!CN,PROXY
+  - RULE-SET,My-Pollution-IP,PROXY
+  - RULE-SET,My-Reject-IP,REJECT
+  - RULE-SET,Skk-Reject-IP,REJECT
+  - RULE-SET,Meta-AD-IP,REJECT
+  - RULE-SET,Meta-Private-IP,DIRECT
+  - RULE-SET,Meta-CN-IP,DIRECT
+  - MATCH,PROXY
